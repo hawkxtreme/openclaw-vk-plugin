@@ -22,7 +22,7 @@ export {
 } from "./src/accounts.js";
 export type {
   OpenClawConfig as VkHostOpenClawConfig,
-  ResolvedVkOfficialAccount,
-  VkOfficialConfig,
+  ResolvedVkPluginAccount,
+  VkPluginConfig,
   VkRuntime,
 } from "./src/types.js";

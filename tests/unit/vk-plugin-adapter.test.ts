@@ -88,7 +88,7 @@ describe("vk plugin adapters", () => {
     });
   });
 
-  it("sends text through the official outbound adapter", async () => {
+  it("sends text through the outbound adapter", async () => {
     const fetchMock = vi.fn(async (input: string | URL) => {
       expect(String(input)).toContain("messages.send");
       expect(String(input)).toContain("peer_id=42");

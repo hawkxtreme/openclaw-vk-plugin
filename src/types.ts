@@ -12,9 +12,9 @@ export type OpenClawConfig = BaseOpenClawConfig & {
   }) | null;
 };
 
-export type ResolvedVkOfficialAccount = ResolvedVkAccount;
-export type VkOfficialConfig = VkConfig;
-export type VkPlugin = BaseChannelPlugin<ResolvedVkOfficialAccount, VkProbeResult>;
+export type ResolvedVkPluginAccount = ResolvedVkAccount;
+export type VkPluginConfig = VkConfig;
+export type VkPlugin = BaseChannelPlugin<ResolvedVkPluginAccount, VkProbeResult>;
 export type VkRuntime = PluginRuntime & {
   channel: PluginRuntime["channel"] & {
     vk?: {
