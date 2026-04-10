@@ -1,0 +1,70 @@
+[
+  {
+    "name": "confirmation-default",
+    "request": {
+      "method": "POST",
+      "body": {
+        "type": "confirmation",
+        "group_id": 77,
+        "secret": "replace-me-callback-secret"
+      }
+    },
+    "expected": {
+      "statusCode": 200,
+      "body": "confirm-77",
+      "eventType": "confirmation"
+    }
+  },
+  {
+    "name": "message-new-ok",
+    "request": {
+      "method": "POST",
+      "body": {
+        "type": "message_new",
+        "group_id": 77,
+        "secret": "replace-me-callback-secret",
+        "event_id": "eval-evt-1",
+        "object": {
+          "message": {
+            "id": 901,
+            "peer_id": 42,
+            "from_id": 42,
+            "text": "hello",
+            "date": 1700000000
+          }
+        }
+      }
+    },
+    "expected": {
+      "statusCode": 200,
+      "body": "ok",
+      "eventType": "message_new"
+    }
+  },
+  {
+    "name": "bad-secret",
+    "request": {
+      "method": "POST",
+      "body": {
+        "type": "message_new",
+        "group_id": 77,
+        "secret": "mismatch-token",
+        "event_id": "eval-evt-2",
+        "object": {
+          "message": {
+            "id": 902,
+            "peer_id": 42,
+            "from_id": 42,
+            "text": "hello",
+            "date": 1700000001
+          }
+        }
+      }
+    },
+    "expected": {
+      "statusCode": 401,
+      "body": "invalid secret",
+      "eventType": "rejected"
+    }
+  }
+]

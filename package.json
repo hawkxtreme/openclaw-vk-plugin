@@ -1,0 +1,89 @@
+{
+  "name": "@openclaw/vk",
+  "version": "2026.4.8",
+  "private": false,
+  "description": "Official standalone VK channel plugin for OpenClaw with long-poll-first onboarding, group chats, buttons, and media",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "vk",
+    "vkontakte",
+    "bot"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "src",
+    "tests",
+    "evals",
+    "docs",
+    "api.ts",
+    "contract-api.ts",
+    "index.ts",
+    "openclaw.plugin.json",
+    "README.md",
+    "runtime-api.ts",
+    "setup-entry.ts",
+    "tsconfig.json",
+    "vitest.config.ts",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./api.ts",
+    "./api": "./api.ts",
+    "./runtime-api": "./runtime-api.ts",
+    "./contract-api": "./contract-api.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "vitest run tests/e2e",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "openclaw": "^2026.4.6",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.6"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "setupEntry": "./setup-entry.ts",
+    "channel": {
+      "id": "vk",
+      "label": "VK",
+      "selectionLabel": "VK (Long Poll)",
+      "detailLabel": "VK Bot",
+      "docsPath": "https://docs.openclaw.ai/channels/vk",
+      "docsLabel": "vk",
+      "blurb": "VK community bot for direct messages and group chats with buttons, media, and long-poll-first onboarding.",
+      "systemImage": "message",
+      "order": 76,
+      "quickstartAllowFrom": true,
+      "markdownCapable": false
+    },
+    "install": {
+      "npmSpec": "@openclaw/vk",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.4.6"
+    },
+    "startup": {
+      "deferConfiguredChannelFullLoadUntilAfterListen": true
+    }
+  }
+}
