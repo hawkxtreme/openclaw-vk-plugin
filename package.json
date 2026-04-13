@@ -17,18 +17,14 @@
   },
   "files": [
     "src",
-    "tests",
-    "evals",
-    "docs",
     "api.ts",
     "contract-api.ts",
     "index.ts",
     "openclaw.plugin.json",
     "README.md",
+    "README.ru.md",
     "runtime-api.ts",
     "setup-entry.ts",
-    "tsconfig.json",
-    "vitest.config.ts",
     "LICENSE"
   ],
   "exports": {
