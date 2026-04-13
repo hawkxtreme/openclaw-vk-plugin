@@ -1,24 +1,26 @@
-import { createChannelPairingController } from "openclaw/plugin-sdk/channel-pairing";
 import { dispatchInboundDirectDmWithRuntime } from "openclaw/plugin-sdk/channel-inbound";
+import { createChannelPairingController } from "openclaw/plugin-sdk/channel-pairing";
 import { createTypingCallbacks } from "openclaw/plugin-sdk/channel-reply-pipeline";
+import type { ChannelAccountSnapshot } from "openclaw/plugin-sdk/core";
 import { resolveInboundDirectDmAccessWithRuntime } from "openclaw/plugin-sdk/direct-dm";
 import { dispatchInboundReplyWithBase } from "openclaw/plugin-sdk/inbound-reply-dispatch";
-import type { ChannelAccountSnapshot } from "openclaw/plugin-sdk/core";
 import type { ResolvedVkAccount } from "./accounts.js";
 import {
   normalizeVkCommandShortcut,
   resolveVkSlashCommandSuggestionReply,
+  type VkMenuBehavior,
   VK_CLOSE_MENU_COMMAND,
 } from "./command-ui.js";
 import { resolveRememberedVkInteractiveMessageId } from "./interactive-state.js";
+import { resolveVkCommandFromPayload } from "./keyboard.js";
 import { sendVkResolvedOutboundPayload } from "./outbound.js";
 import { resolveVkInboundEditConversationMessageId } from "./reply-to.js";
 import { getVkRuntime } from "./runtime.js";
 import { resolveVkInboundBody } from "./text-format.js";
+import type { OpenClawConfig } from "./types.js";
 import { sendVkText, sendVkTyping } from "./vk-core/outbound/send.js";
 import type { VkAccessController } from "./vk-core/types/access.js";
 import type { VkInboundMessage } from "./vk-core/types/longpoll.js";
-import type { OpenClawConfig } from "./types.js";
 
 const CHANNEL_ID = "vk" as const;
 
@@ -52,24 +54,52 @@ const dispatchInboundDirectDmWithRuntimeCompat =
     typingCallbacks?: VkTypingCallbacks;
   }) => ReturnType<typeof dispatchInboundDirectDmWithRuntime>;
 
-function shouldCollapseVkCommandReply(params: {
-  account: ResolvedVkAccount;
-  rawBody: string;
-}): boolean {
-  return (
-    params.account.config.transport === "long-poll" &&
-    params.rawBody.trim().startsWith("/")
-  );
+function resolveVkFlowDebugChannelData(payload: unknown): Record<string, unknown> | undefined {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const channelData =
+    record.channelData &&
+    typeof record.channelData === "object" &&
+    !Array.isArray(record.channelData)
+      ? (record.channelData as Record<string, unknown>)
+      : undefined;
+  const vk =
+    channelData?.vk && typeof channelData.vk === "object" && !Array.isArray(channelData.vk)
+      ? (channelData.vk as Record<string, unknown>)
+      : undefined;
+  return vk;
 }
 
-function attachVkCollapsedMenuBehavior(payload: unknown): unknown {
+function emitVkFlowDebug(event: string, data: Record<string, unknown>): void {
+  if (process.env.OPENCLAW_VK_DEBUG_FLOW !== "1") {
+    return;
+  }
+  console.warn(`[vk-flow] ${JSON.stringify({ event, ...data })}`);
+}
+
+function resolveVkCommandReplyMenuBehavior(params: {
+  account: ResolvedVkAccount;
+  rawBody: string;
+}): VkMenuBehavior | undefined {
+  if (params.account.config.transport !== "long-poll") {
+    return undefined;
+  }
+  return params.rawBody.trim().startsWith("/") ? "root" : undefined;
+}
+
+function attachVkMenuBehavior(payload: unknown, menuBehavior: VkMenuBehavior): unknown {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return payload;
   }
 
   const record = payload as Record<string, unknown>;
   const channelData =
-    record.channelData && typeof record.channelData === "object" && !Array.isArray(record.channelData)
+    record.channelData &&
+    typeof record.channelData === "object" &&
+    !Array.isArray(record.channelData)
       ? (record.channelData as Record<string, unknown>)
       : {};
   const vk =
@@ -83,6 +113,35 @@ function attachVkCollapsedMenuBehavior(payload: unknown): unknown {
       ...channelData,
       vk: {
         ...vk,
+        menuBehavior,
+      },
+    },
+  };
+}
+
+function buildVkCloseMenuPayload(account: ResolvedVkAccount): {
+  text: string;
+  channelData: {
+    vk: {
+      menuBehavior: VkMenuBehavior;
+    };
+  };
+} {
+  if (account.config.transport === "long-poll") {
+    return {
+      text: "Menu collapsed. Open the keyboard to continue.",
+      channelData: {
+        vk: {
+          menuBehavior: "root",
+        },
+      },
+    };
+  }
+
+  return {
+    text: "Menu hidden. Tap Menu to reopen.",
+    channelData: {
+      vk: {
         menuBehavior: "collapse",
       },
     },
@@ -130,7 +189,9 @@ function resolveVkGroupConfig(account: ResolvedVkAccount, peerId: number) {
 }
 
 function buildVkConversationLabel(message: VkInboundMessage): string {
-  return message.isGroupChat ? `VK chat ${String(message.peerId)}` : `VK user ${String(message.senderId)}`;
+  return message.isGroupChat
+    ? `VK chat ${String(message.peerId)}`
+    : `VK user ${String(message.senderId)}`;
 }
 
 function resolveVkGroupCommandAuthorization(params: {
@@ -177,6 +238,19 @@ async function deliverVkReply(params: {
   payload: unknown;
   statusSink?: VkInboundStatusSink;
 }) {
+  const payloadText =
+    params.payload && typeof params.payload === "object" && !Array.isArray(params.payload)
+      ? ((params.payload as Record<string, unknown>).text as string | undefined)
+      : undefined;
+  emitVkFlowDebug("deliver", {
+    accountId: params.accountId,
+    to: params.to,
+    replyToId: params.replyToId,
+    editConversationMessageId: params.editConversationMessageId,
+    payloadText: payloadText?.slice(0, 120),
+    channelDataVk: resolveVkFlowDebugChannelData(params.payload),
+  });
+
   await sendVkResolvedOutboundPayload({
     cfg: params.cfg,
     to: params.to,
@@ -238,26 +312,36 @@ export async function handleVkInboundMessage(params: {
     return;
   }
   const rawBody = normalizeVkCommandShortcut(inboundBody);
+  const payloadCommand = resolveVkCommandFromPayload(message.messagePayload);
+  emitVkFlowDebug("inbound", {
+    accountId: account.accountId,
+    transport: account.config.transport,
+    messageId: message.messageId,
+    peerId: message.peerId,
+    senderId: message.senderId,
+    isGroupChat: message.isGroupChat,
+    rawBody,
+    payloadCommand,
+  });
 
   traceInbound("body-ready");
   const core = getVkRuntime();
   const replyToId = undefined;
-  const rememberedInteractiveMessageId =
-    rawBody.trim().startsWith("/")
-      ? resolveRememberedVkInteractiveMessageId({
-          accountId: account.accountId,
-          peerId: String(message.peerId),
-        })
-      : undefined;
-  const shouldCollapseCommandReply = shouldCollapseVkCommandReply({
+  const rememberedInteractiveMessageId = rawBody.trim().startsWith("/")
+    ? resolveRememberedVkInteractiveMessageId({
+        accountId: account.accountId,
+        peerId: String(message.peerId),
+      })
+    : undefined;
+  const commandReplyMenuBehavior = resolveVkCommandReplyMenuBehavior({
     account,
     rawBody,
   });
+  // Long-poll reply-keyboard commands arrive as fresh user messages. Only
+  // synthetic callback events should edit an existing interactive menu.
   const editConversationMessageId =
     resolveVkInboundEditConversationMessageId(message) ??
-    (account.config.transport === "callback-api"
-      ? rememberedInteractiveMessageId
-      : undefined);
+    (account.config.transport === "callback-api" ? rememberedInteractiveMessageId : undefined);
   statusSink?.({
     lastInboundAt: message.createdAt,
     lastEventAt: message.createdAt,
@@ -304,14 +388,7 @@ export async function handleVkInboundMessage(params: {
         to: String(message.peerId),
         replyToId,
         editConversationMessageId,
-        payload: {
-          text: "Menu hidden. Tap Menu to reopen.",
-          channelData: {
-            vk: {
-              menuBehavior: "collapse",
-            },
-          },
-        },
+        payload: buildVkCloseMenuPayload(account),
         statusSink,
       });
       return;
@@ -325,8 +402,8 @@ export async function handleVkInboundMessage(params: {
         to: String(message.peerId),
         replyToId,
         editConversationMessageId,
-        payload: shouldCollapseCommandReply
-          ? attachVkCollapsedMenuBehavior(groupSuggestionReply)
+        payload: commandReplyMenuBehavior
+          ? attachVkMenuBehavior(groupSuggestionReply, commandReplyMenuBehavior)
           : groupSuggestionReply,
         statusSink,
       });
@@ -399,8 +476,8 @@ export async function handleVkInboundMessage(params: {
           to: String(message.peerId),
           replyToId,
           editConversationMessageId,
-          payload: shouldCollapseCommandReply
-            ? attachVkCollapsedMenuBehavior(payload)
+          payload: commandReplyMenuBehavior
+            ? attachVkMenuBehavior(payload, commandReplyMenuBehavior)
             : payload,
           statusSink,
         }),
@@ -467,9 +544,7 @@ export async function handleVkInboundMessage(params: {
         statusSink?.({ lastOutboundAt: Date.now() });
       },
       onReplyError: (error) => {
-        log?.warn?.(
-          `[${account.accountId}] failed sending VK pairing challenge: ${String(error)}`,
-        );
+        log?.warn?.(`[${account.accountId}] failed sending VK pairing challenge: ${String(error)}`);
       },
     });
     log?.debug?.(
@@ -492,14 +567,7 @@ export async function handleVkInboundMessage(params: {
       to: String(message.peerId),
       replyToId,
       editConversationMessageId,
-      payload: {
-        text: "Menu hidden. Tap Menu to reopen.",
-        channelData: {
-          vk: {
-            menuBehavior: "collapse",
-          },
-        },
-      },
+      payload: buildVkCloseMenuPayload(account),
       statusSink,
     });
     return;
@@ -513,8 +581,8 @@ export async function handleVkInboundMessage(params: {
       to: String(message.peerId),
       replyToId,
       editConversationMessageId,
-      payload: shouldCollapseCommandReply
-        ? attachVkCollapsedMenuBehavior(dmSuggestionReply)
+      payload: commandReplyMenuBehavior
+        ? attachVkMenuBehavior(dmSuggestionReply, commandReplyMenuBehavior)
         : dmSuggestionReply,
       statusSink,
     });
@@ -541,17 +609,17 @@ export async function handleVkInboundMessage(params: {
     timestamp: message.createdAt,
     commandAuthorized: dmAccess.commandAuthorized,
     deliver: async (payload) =>
-        await deliverVkReply({
-          cfg,
-          accountId: account.accountId,
-          to: String(message.peerId),
-          replyToId,
-          editConversationMessageId,
-          payload: shouldCollapseCommandReply
-            ? attachVkCollapsedMenuBehavior(payload)
-            : payload,
-          statusSink,
-        }),
+      await deliverVkReply({
+        cfg,
+        accountId: account.accountId,
+        to: String(message.peerId),
+        replyToId,
+        editConversationMessageId,
+        payload: commandReplyMenuBehavior
+          ? attachVkMenuBehavior(payload, commandReplyMenuBehavior)
+          : payload,
+        statusSink,
+      }),
     onRecordError: (error) => {
       const rendered = String(error);
       statusSink?.({ lastError: rendered });

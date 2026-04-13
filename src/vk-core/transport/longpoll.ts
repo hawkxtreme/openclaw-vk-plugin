@@ -5,6 +5,7 @@ import { normalizeVkMessageNewUpdate } from "../inbound/normalize.js";
 import type {
   VkLongPollMonitor,
   VkLongPollMonitorOptions,
+  VkLongPollResponse,
   VkLongPollMonitorStatus,
   VkLongPollServer,
 } from "../types/longpoll.js";
@@ -12,6 +13,25 @@ import { createVkDedupeCache } from "./dedupe.js";
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function renderTransportError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+
+  const cause =
+    error.cause && typeof error.cause === "object"
+      ? (error.cause as Record<string, unknown>)
+      : null;
+  const code = typeof cause?.code === "string" ? cause.code : undefined;
+  const causeMessage = typeof cause?.message === "string" ? cause.message : undefined;
+  if (!code && !causeMessage) {
+    return error.message;
+  }
+
+  const details = [code, causeMessage].filter(Boolean).join(": ");
+  return `${error.message} (${details})`;
 }
 
 function delay(ms: number, signal: AbortSignal): Promise<void> {
@@ -158,14 +178,36 @@ export function createVkLongPollMonitor(options: VkLongPollMonitorOptions): VkLo
           server = await connectServer(groupId);
         }
 
-        const response = await pollVkLongPoll({
-          server: server.server,
-          key: server.key,
-          ts: server.ts,
-          waitSeconds: options.waitSeconds,
-          signal: controller.signal,
-          fetchImpl,
-        });
+        let response: VkLongPollResponse;
+        try {
+          response = await pollVkLongPoll({
+            server: server.server,
+            key: server.key,
+            ts: server.ts,
+            waitSeconds: options.waitSeconds,
+            signal: controller.signal,
+            fetchImpl,
+          });
+        } catch (error) {
+          if (controller.signal.aborted && isAbortError(error)) {
+            break;
+          }
+
+          const message = renderTransportError(error);
+          patchStatus({
+            state: "reconnecting",
+            connected: false,
+            lastError: message,
+            lastDisconnectAt: now(),
+            lastReconnectAt: now(),
+            reconnectAttempts: status.reconnectAttempts + 1,
+          });
+          options.logger?.warn?.(
+            `[${options.account.accountId}] VK long poll transport error: ${message}; retrying current long poll server`,
+          );
+          await delay(reconnectDelayMs, controller.signal);
+          continue;
+        }
 
         if (response.failed) {
           if (response.failed === 1 && response.ts) {
@@ -313,7 +355,7 @@ export function createVkLongPollMonitor(options: VkLongPollMonitorOptions): VkLo
           break;
         }
 
-        const message = error instanceof Error ? error.message : String(error);
+        const message = renderTransportError(error);
         patchStatus({
           state: "reconnecting",
           connected: false,

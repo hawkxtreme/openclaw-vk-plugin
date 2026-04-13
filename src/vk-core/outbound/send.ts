@@ -1,9 +1,5 @@
 import { randomInt } from "node:crypto";
-
-import {
-  normalizeVkConversationMessageId,
-  resolveVkInboundReplyToId,
-} from "../../reply-to.js";
+import { normalizeVkConversationMessageId, resolveVkInboundReplyToId } from "../../reply-to.js";
 import { formatVkOutboundMessage } from "../../text-format.js";
 import { editVkMessage, sendVkMessage, setVkMessageActivity, VkApiError } from "../core/api.js";
 import type { ResolvedVkAccount } from "../types/config.js";
@@ -26,10 +22,7 @@ export type VkSendTextOptions = {
   fetchImpl?: typeof fetch;
 };
 
-export type VkSendReplyOptions = Omit<
-  VkSendTextOptions,
-  "peerId" | "replyTo"
-> & {
+export type VkSendReplyOptions = Omit<VkSendTextOptions, "peerId" | "replyTo"> & {
   message: VkInboundMessage;
 };
 
@@ -40,14 +33,8 @@ export type VkSendTextResult = {
   edited?: boolean;
 };
 
-function normalizePositiveInteger(
-  value: string | number,
-  errorPrefix: string,
-): number {
-  const normalized =
-    typeof value === "number"
-      ? value
-      : Number.parseInt(String(value).trim(), 10);
+function normalizePositiveInteger(value: string | number, errorPrefix: string): number {
+  const normalized = typeof value === "number" ? value : Number.parseInt(String(value).trim(), 10);
 
   if (!Number.isInteger(normalized) || normalized <= 0) {
     throw new Error(`${errorPrefix} ${String(value)}`);
@@ -102,17 +89,13 @@ export function resolveVkRandomId(params?: {
   }
 
   if (params?.rng) {
-    return normalizeVkRandomId(
-      Math.max(1, Math.floor(params.rng() * MAX_VK_RANDOM_ID)),
-    );
+    return normalizeVkRandomId(Math.max(1, Math.floor(params.rng() * MAX_VK_RANDOM_ID)));
   }
 
   return randomInt(1, MAX_VK_RANDOM_ID + 1);
 }
 
-function normalizeVkReplyTo(
-  value: string | number | undefined,
-): number | undefined {
+function normalizeVkReplyTo(value: string | number | undefined): number | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -120,11 +103,9 @@ function normalizeVkReplyTo(
   return normalizePositiveInteger(value, "Invalid VK reply_to");
 }
 
-const VK_EDIT_FALLBACK_CODES = new Set([909, 920]);
+const VK_EDIT_FALLBACK_CODES = new Set([100, 909, 920]);
 
-export async function sendVkText(
-  options: VkSendTextOptions,
-): Promise<VkSendTextResult> {
+export async function sendVkText(options: VkSendTextOptions): Promise<VkSendTextResult> {
   if (!options.account.token) {
     throw new Error(options.account.tokenError ?? "VK token is not configured");
   }
@@ -165,10 +146,7 @@ export async function sendVkText(
         edited: true,
       };
     } catch (error) {
-      if (
-        !(error instanceof VkApiError) ||
-        !VK_EDIT_FALLBACK_CODES.has(error.code)
-      ) {
+      if (!(error instanceof VkApiError) || !VK_EDIT_FALLBACK_CODES.has(error.code)) {
         throw error;
       }
     }
@@ -196,9 +174,7 @@ export async function sendVkText(
   };
 }
 
-export async function sendVkReply(
-  options: VkSendReplyOptions,
-): Promise<VkSendTextResult> {
+export async function sendVkReply(options: VkSendReplyOptions): Promise<VkSendTextResult> {
   return await sendVkText({
     ...options,
     peerId: options.message.peerId,

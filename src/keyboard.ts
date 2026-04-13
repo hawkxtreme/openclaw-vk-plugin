@@ -24,6 +24,7 @@ export type VkKeyboardSpec = {
   buttons: VkReplyButtons;
   inline?: boolean;
   oneTime?: boolean;
+  longPollInlineCallback?: boolean;
 };
 
 function readTrimmedString(value: unknown): string | undefined {
@@ -192,6 +193,8 @@ export function resolveVkKeyboardSpecFromPayload(payload: unknown): VkKeyboardSp
     buttons,
     inline: readBoolean(vkData?.inline),
     oneTime: readBoolean(vkData?.one_time) ?? readBoolean(vkData?.oneTime),
+    longPollInlineCallback:
+      readBoolean(vkData?.long_poll_inline_callback) ?? readBoolean(vkData?.longPollInlineCallback),
   };
 }
 
@@ -213,7 +216,11 @@ export function buildVkKeyboard(
     return undefined;
   }
 
-  const useInlineCallback = spec.inline === true && transport === "callback-api";
+  // Most VK keyboards should still degrade to chat-keyboard text buttons in
+  // Long Poll mode. Opt-in specific menu surfaces that we have validated
+  // end-to-end to use inline callback buttons through message_event.
+  const useInlineCallback =
+    spec.inline === true && (transport === "callback-api" || spec.longPollInlineCallback === true);
 
   const rows = spec.buttons
     .slice(0, MAX_KEYBOARD_ROWS)

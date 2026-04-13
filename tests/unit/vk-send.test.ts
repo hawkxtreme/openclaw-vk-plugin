@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-
 import {
   normalizeVkMessageNewUpdate,
   normalizeVkPeerId,
@@ -9,6 +8,7 @@ import {
   sendVkReply,
   sendVkText,
 } from "../../api.js";
+import { sendVkPayload } from "../../src/vk-core/outbound/media.js";
 
 function createAccount(overrides?: {
   config?: unknown;
@@ -53,13 +53,9 @@ describe("vk outbound text", () => {
     expect(result.randomId).toBeGreaterThan(0);
     expect(requestedUrl?.pathname).toBe("/method/messages.send");
     expect(requestedUrl?.searchParams.get("peer_id")).toBe("42");
-    expect(requestedUrl?.searchParams.get("message")).toBe(
-      "Hello from OpenClaw",
-    );
+    expect(requestedUrl?.searchParams.get("message")).toBe("Hello from OpenClaw");
     expect(requestedUrl?.searchParams.get("reply_to")).toBe("501");
-    expect(requestedUrl?.searchParams.get("random_id")).toBe(
-      String(result.randomId),
-    );
+    expect(requestedUrl?.searchParams.get("random_id")).toBe(String(result.randomId));
   });
 
   it("uses stable random ids when dedupeKey is provided", async () => {
@@ -67,9 +63,7 @@ describe("vk outbound text", () => {
     const observedRandomIds: string[] = [];
 
     const fetchImpl = async (input: URL | RequestInfo) => {
-      observedRandomIds.push(
-        new URL(String(input)).searchParams.get("random_id") ?? "",
-      );
+      observedRandomIds.push(new URL(String(input)).searchParams.get("random_id") ?? "");
       return new Response(
         JSON.stringify({
           response: observedRandomIds.length,
@@ -93,13 +87,8 @@ describe("vk outbound text", () => {
     });
 
     expect(first.randomId).toBe(second.randomId);
-    expect(observedRandomIds).toEqual([
-      String(first.randomId),
-      String(second.randomId),
-    ]);
-    expect(resolveVkRandomId({ dedupeKey: "thread:42:reply:1" })).toBe(
-      first.randomId,
-    );
+    expect(observedRandomIds).toEqual([String(first.randomId), String(second.randomId)]);
+    expect(resolveVkRandomId({ dedupeKey: "thread:42:reply:1" })).toBe(first.randomId);
   });
 
   it("edits an existing VK callback message in place when cmid is provided", async () => {
@@ -184,9 +173,7 @@ describe("vk outbound text", () => {
       edited: true,
     });
     expect(requestedUrl?.pathname).toBe("/method/messages.edit");
-    expect(requestedUrl?.searchParams.get("message")).toBe(
-      "Menu hidden. Tap Menu to reopen.",
-    );
+    expect(requestedUrl?.searchParams.get("message")).toBe("Menu hidden. Tap Menu to reopen.");
     expect(JSON.parse(requestedUrl?.searchParams.get("keyboard") ?? "{}")).toEqual({
       one_time: false,
       buttons: [
@@ -242,6 +229,165 @@ describe("vk outbound text", () => {
     expect(requestedUrls).toHaveLength(2);
     expect(requestedUrls[0]?.pathname).toBe("/method/messages.edit");
     expect(requestedUrls[1]?.pathname).toBe("/method/messages.send");
+  });
+
+  it("falls back to sending a new message when VK returns invalid cmid for text edits", async () => {
+    const account = createAccount();
+    const requestedUrls: URL[] = [];
+
+    const result = await sendVkText({
+      account,
+      peerId: 42,
+      text: "Updated menu",
+      editConversationMessageId: "72",
+      fetchImpl: async (input) => {
+        const url = new URL(String(input));
+        requestedUrls.push(url);
+        if (url.pathname === "/method/messages.edit") {
+          return new Response(
+            JSON.stringify({
+              error: {
+                error_code: 100,
+                error_msg: "invalid cmid",
+              },
+            }),
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            response: 9108,
+          }),
+        );
+      },
+    });
+
+    expect(result).toMatchObject({
+      messageId: "9108",
+      peerId: 42,
+    });
+    expect(requestedUrls).toHaveLength(2);
+    expect(requestedUrls[0]?.pathname).toBe("/method/messages.edit");
+    expect(requestedUrls[1]?.pathname).toBe("/method/messages.send");
+  });
+
+  it("retries conversation_message_id lookup after sending a long-poll keyboard", async () => {
+    const account = createAccount();
+    const requestedUrls: URL[] = [];
+
+    const result = await sendVkPayload({
+      account,
+      peerId: 42,
+      text: "VK uses buttons for command menus. Choose a command:",
+      keyboard: JSON.stringify({
+        one_time: false,
+        buttons: [
+          [
+            {
+              action: {
+                type: "text",
+                label: "Menu",
+                payload: JSON.stringify({ oc: "/commands" }),
+              },
+              color: "secondary",
+            },
+          ],
+        ],
+      }),
+      fetchImpl: async (input) => {
+        const url = new URL(String(input));
+        requestedUrls.push(url);
+
+        if (url.pathname === "/method/messages.send") {
+          return new Response(
+            JSON.stringify({
+              response: 9201,
+            }),
+          );
+        }
+
+        if (url.pathname === "/method/messages.getHistory") {
+          const historyAttempt = requestedUrls.filter(
+            (entry) => entry.pathname === "/method/messages.getHistory",
+          ).length;
+          if (historyAttempt === 1) {
+            return new Response(
+              JSON.stringify({
+                response: {
+                  items: [],
+                },
+              }),
+            );
+          }
+
+          return new Response(
+            JSON.stringify({
+              response: {
+                items: [
+                  {
+                    id: 9201,
+                    conversation_message_id: 88,
+                  },
+                ],
+              },
+            }),
+          );
+        }
+
+        throw new Error(`Unexpected VK request ${url.pathname}`);
+      },
+    });
+
+    expect(result).toMatchObject({
+      messageId: "9201",
+      peerId: 42,
+      conversationMessageId: "88",
+    });
+    expect(
+      requestedUrls.filter((url) => url.pathname === "/method/messages.getHistory"),
+    ).toHaveLength(2);
+  });
+
+  it("falls back to sending a new message when VK returns invalid cmid for payload edits", async () => {
+    const account = createAccount();
+    const requestedUrls: URL[] = [];
+
+    const result = await sendVkPayload({
+      account,
+      peerId: 42,
+      text: "Updated menu",
+      editConversationMessageId: "72",
+      fetchImpl: async (input) => {
+        const url = new URL(String(input));
+        requestedUrls.push(url);
+        if (url.pathname === "/method/messages.edit") {
+          return new Response(
+            JSON.stringify({
+              error: {
+                error_code: 100,
+                error_msg: "invalid cmid",
+              },
+            }),
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            response: 9109,
+          }),
+        );
+      },
+    });
+
+    expect(result).toMatchObject({
+      messageId: "9109",
+      peerId: 42,
+    });
+    expect(requestedUrls[0]?.pathname).toBe("/method/messages.edit");
+    expect(requestedUrls[1]?.pathname).toBe("/method/messages.send");
+    expect(
+      requestedUrls.filter((url) => url.pathname === "/method/messages.getHistory").length,
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it("renders markdown text as readable plain VK text", async () => {
@@ -315,7 +461,7 @@ describe("vk outbound text", () => {
     await sendVkText({
       account,
       peerId: 42,
-      text: "<strong>BoldHtml</strong> <em>ItalicHtml</em> <u>UnderlineHtml</u> <a href=\"https://openclaw.ai\">OpenClaw</a>",
+      text: '<strong>BoldHtml</strong> <em>ItalicHtml</em> <u>UnderlineHtml</u> <a href="https://openclaw.ai">OpenClaw</a>',
       fetchImpl: async (input) => {
         requestedUrl = new URL(String(input));
         return new Response(

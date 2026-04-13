@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { vkMessagingAdapter, vkOutboundAdapter, vkPlugin } from "../../api.js";
-import { resolveVkSlashCommandSuggestionReply } from "../../src/command-ui.js";
+import {
+  sendVkResolvedOutboundPayload,
+  vkMessagingAdapter,
+  vkOutboundAdapter,
+  vkPlugin,
+} from "../../api.js";
 
 type VkCommandAdapterCompat = NonNullable<typeof vkPlugin.commands> & {
   buildModelsProviderChannelData?: (params: {
@@ -88,7 +92,7 @@ describe("vk plugin adapters", () => {
     });
   });
 
-  it("sends text through the outbound adapter", async () => {
+  it("sends text through the official outbound adapter", async () => {
     const fetchMock = vi.fn(async (input: string | URL) => {
       expect(String(input)).toContain("messages.send");
       expect(String(input)).toContain("peer_id=42");
@@ -244,13 +248,17 @@ describe("vk plugin adapters", () => {
       vk: {
         inline: true,
         oneTime: false,
+        longPollInlineCallback: true,
         buttons: [
           [
             { text: "anthropic (2)", callback_data: "/models anthropic" },
             { text: "openai (5)", callback_data: "/models openai" },
           ],
           [{ text: "Next >", callback_data: "/models 2" }],
-          [{ text: "Close", callback_data: "/vk-menu-close" }],
+          [
+            { text: "< Back", callback_data: "/commands" },
+            { text: "Close", callback_data: "/vk-menu-close" },
+          ],
         ],
       },
     });
@@ -279,9 +287,9 @@ describe("vk plugin adapters", () => {
       "groq (18)",
       "huggingface (18)",
       "kimi (2)",
-      "minimax (2)",
       "< Prev",
       "Next >",
+      "< Back",
       "Close",
     ]);
 
@@ -301,6 +309,7 @@ describe("vk plugin adapters", () => {
       vk: {
         inline: true,
         oneTime: false,
+        longPollInlineCallback: true,
         buttons: [
           [
             { text: "GPT-5.4 ✓", callback_data: "/model openai/gpt-5.4" },
@@ -348,6 +357,7 @@ describe("vk plugin adapters", () => {
       vk: {
         inline: true,
         oneTime: false,
+        longPollInlineCallback: true,
         buttons: [
           [{ text: "Browse providers", callback_data: "/models" }],
           [{ text: "Close", callback_data: "/vk-menu-close" }],
@@ -368,12 +378,16 @@ describe("vk plugin adapters", () => {
       vk: {
         inline: true,
         oneTime: false,
+        longPollInlineCallback: true,
         buttons: [
           [
             { text: "Built-in (20)", callback_data: "/tools core" },
             { text: "Connected (2)", callback_data: "/tools plugin" },
           ],
-          [{ text: "Close", callback_data: "/vk-menu-close" }],
+          [
+            { text: "< Back", callback_data: "/commands" },
+            { text: "Close", callback_data: "/vk-menu-close" },
+          ],
         ],
       },
     });
@@ -393,6 +407,7 @@ describe("vk plugin adapters", () => {
       vk: {
         inline: true,
         oneTime: false,
+        longPollInlineCallback: true,
         buttons: [
           [
             { text: "Browser", callback_data: "/tools plugin browser" },
@@ -416,6 +431,7 @@ describe("vk plugin adapters", () => {
       vk: {
         inline: true,
         oneTime: false,
+        longPollInlineCallback: true,
         buttons: [
           [
             { text: "< Back", callback_data: "/tools plugin 2" },
@@ -424,22 +440,6 @@ describe("vk plugin adapters", () => {
         ],
       },
     });
-  });
-
-  it("offers VK button suggestions when the user types a partial slash command", () => {
-    const reply = resolveVkSlashCommandSuggestionReply("/mo");
-    expect(reply?.text).toBe("VK uses buttons for command menus. Matching commands:");
-
-    const buttons = (
-      reply?.channelData as {
-        vk?: { buttons?: Array<Array<{ text: string; callback_data?: string }>> };
-      }
-    )?.vk?.buttons;
-    expect(buttons?.flat().map((button) => button.callback_data)).toEqual([
-      "/model",
-      "/models",
-      "/vk-menu-close",
-    ]);
   });
 
   it("sends command keyboards as inline callback buttons on callback-api accounts", async () => {
@@ -457,8 +457,6 @@ describe("vk plugin adapters", () => {
       },
     });
 
-    const modelBrowseChannelData = commands.buildModelBrowseChannelData?.() ?? undefined;
-
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await vkOutboundAdapter.sendPayload?.({
@@ -474,7 +472,7 @@ describe("vk plugin adapters", () => {
       to: "vk:42",
       payload: {
         text: "Choose a model",
-        channelData: modelBrowseChannelData,
+        channelData: commands.buildModelBrowseChannelData?.() ?? undefined,
       },
       accountId: "default",
       text: "",
@@ -487,22 +485,20 @@ describe("vk plugin adapters", () => {
     });
   });
 
-  it("falls back to chat text buttons for command keyboards on long-poll accounts", async () => {
+  it("sends command keyboards as inline callback buttons on long-poll accounts", async () => {
     const commands = vkPlugin.commands as VkCommandAdapterCompat;
     const fetchMock = createVkApiFetchMock({
       sendResponse: 9007,
       onSend: (url) => {
         if (url.pathname === "/method/messages.send") {
           const keyboard = JSON.parse(url.searchParams.get("keyboard") ?? "{}");
-          expect(keyboard.inline ?? false).toBe(false);
-          expect(keyboard.one_time).toBe(false);
-          expect(keyboard.buttons[0][0].action.type).toBe("text");
+          expect(keyboard.inline).toBe(true);
+          expect(Object.hasOwn(keyboard, "one_time")).toBe(false);
+          expect(keyboard.buttons[0][0].action.type).toBe("callback");
           expect(keyboard.buttons[0][0].action.label).toBe("Browse providers");
         }
       },
     });
-
-    const modelBrowseChannelData = commands.buildModelBrowseChannelData?.() ?? undefined;
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -519,7 +515,7 @@ describe("vk plugin adapters", () => {
       to: "vk:42",
       payload: {
         text: "Choose a model",
-        channelData: modelBrowseChannelData,
+        channelData: commands.buildModelBrowseChannelData?.() ?? undefined,
       },
       accountId: "default",
       text: "",
@@ -530,6 +526,259 @@ describe("vk plugin adapters", () => {
       messageId: "9007",
       conversationId: "42",
     });
+  });
+
+  it("re-roots the long-poll launcher keyboard when sending inline callback menus", async () => {
+    const commands = vkPlugin.commands as VkCommandAdapterCompat;
+    const requestedUrls: URL[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = new URL(String(input));
+        requestedUrls.push(url);
+
+        if (url.pathname === "/method/messages.send") {
+          return new Response(
+            JSON.stringify({
+              response: 9008,
+            }),
+          );
+        }
+
+        if (url.pathname === "/method/messages.getHistory") {
+          return new Response(
+            JSON.stringify({
+              response: {
+                items: [
+                  {
+                    id: 9008,
+                    conversation_message_id: 210,
+                    out: 1,
+                    text: "Choose a model",
+                    keyboard: {
+                      inline: true,
+                      buttons: [[{ action: { label: "Browse providers", type: "callback" } }]],
+                    },
+                  },
+                  {
+                    id: 8999,
+                    conversation_message_id: 205,
+                    out: 1,
+                    text: "Legacy provider menu",
+                    keyboard: {
+                      buttons: [[{ action: { label: "proxy (3)", type: "text" } }]],
+                    },
+                  },
+                ],
+              },
+            }),
+          );
+        }
+
+        if (url.pathname === "/method/messages.edit") {
+          return new Response(
+            JSON.stringify({
+              response: 1,
+            }),
+          );
+        }
+
+        throw new Error(`Unexpected VK request ${url.pathname}`);
+      }),
+    );
+
+    const result = await vkOutboundAdapter.sendPayload?.({
+      cfg: {
+        channels: {
+          vk: {
+            groupId: 77,
+            transport: "long-poll",
+            accessToken: "replace-me-callback-token",
+          },
+        },
+      },
+      to: "vk:42",
+      payload: {
+        text: "Choose a model",
+        channelData: commands.buildModelBrowseChannelData?.() ?? undefined,
+      },
+      accountId: "default",
+      text: "",
+    });
+
+    expect(result).toMatchObject({
+      channel: "vk",
+      messageId: "9008",
+      conversationId: "42",
+    });
+
+    const launcherEdit = requestedUrls.find(
+      (url) => url.pathname === "/method/messages.edit" && url.searchParams.get("cmid") === "205",
+    );
+    expect(launcherEdit).toBeDefined();
+    expect(launcherEdit?.searchParams.get("message")).toBe(
+      "VK uses buttons for command menus. Choose a command:",
+    );
+    const launcherKeyboard = JSON.parse(launcherEdit?.searchParams.get("keyboard") ?? "{}");
+    expect(launcherKeyboard.inline ?? false).toBe(false);
+    expect(launcherKeyboard.one_time).toBe(false);
+    expect(launcherKeyboard.buttons[0][0].action.type).toBe("text");
+    expect(launcherKeyboard.buttons[0][0].action.label).toBe("Menu");
+    expect(launcherKeyboard.buttons.at(-1)?.[0]?.action?.label).toBe("Close");
+  });
+
+  it("sends a fresh long-poll inline menu instead of editing the reply-keyboard launcher", async () => {
+    const commands = vkPlugin.commands as VkCommandAdapterCompat;
+    const requestedUrls: URL[] = [];
+    let historyCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = new URL(String(input));
+        requestedUrls.push(url);
+
+        if (url.pathname === "/method/messages.send") {
+          return new Response(
+            JSON.stringify({
+              response: 9010,
+            }),
+          );
+        }
+
+        if (url.pathname === "/method/messages.getHistory") {
+          historyCalls += 1;
+          if (historyCalls === 1) {
+            return new Response(
+              JSON.stringify({
+                response: {
+                  items: [
+                    {
+                      id: 8999,
+                      conversation_message_id: 205,
+                      out: 1,
+                      text: "Legacy provider menu",
+                      keyboard: {
+                        buttons: [[{ action: { label: "cerebras (4)", type: "text" } }]],
+                      },
+                    },
+                  ],
+                },
+              }),
+            );
+          }
+
+          return new Response(
+            JSON.stringify({
+              response: {
+                items: [
+                  {
+                    id: 9010,
+                    conversation_message_id: 211,
+                    out: 1,
+                    text: "Choose a model",
+                    keyboard: {
+                      inline: true,
+                      buttons: [[{ action: { label: "Browse providers", type: "callback" } }]],
+                    },
+                  },
+                  {
+                    id: 8999,
+                    conversation_message_id: 205,
+                    out: 1,
+                    text: "Legacy provider menu",
+                    keyboard: {
+                      buttons: [[{ action: { label: "cerebras (4)", type: "text" } }]],
+                    },
+                  },
+                ],
+              },
+            }),
+          );
+        }
+
+        if (url.pathname === "/method/messages.edit") {
+          return new Response(
+            JSON.stringify({
+              response: 1,
+            }),
+          );
+        }
+
+        throw new Error(`Unexpected VK request ${url.pathname}`);
+      }),
+    );
+
+    const result = await sendVkResolvedOutboundPayload({
+      cfg: {
+        channels: {
+          vk: {
+            groupId: 77,
+            transport: "long-poll",
+            accessToken: "replace-me-callback-token",
+          },
+        },
+      },
+      to: "42",
+      payload: {
+        text: "Choose a model",
+        channelData: commands.buildModelBrowseChannelData?.() ?? undefined,
+      },
+      accountId: "default",
+      editConversationMessageId: "205",
+    });
+
+    expect(result).toMatchObject({
+      channel: "vk",
+      messageId: "9010",
+      conversationId: "42",
+    });
+
+    const inlineEdit = requestedUrls.find(
+      (url) =>
+        url.pathname === "/method/messages.edit" &&
+        url.searchParams.get("message") === "Choose a model",
+    );
+    expect(inlineEdit).toBeUndefined();
+
+    const inlineSend = requestedUrls.find(
+      (url) =>
+        url.pathname === "/method/messages.send" &&
+        url.searchParams.get("message") === "Choose a model",
+    );
+    expect(inlineSend).toBeDefined();
+    expect(JSON.parse(inlineSend?.searchParams.get("keyboard") ?? "{}")).toEqual({
+      inline: true,
+      buttons: [
+        [
+          {
+            action: {
+              type: "callback",
+              label: "Browse providers",
+              payload: JSON.stringify({ oc: "/models" }),
+            },
+            color: "secondary",
+          },
+        ],
+        [
+          {
+            action: {
+              type: "callback",
+              label: "Close",
+              payload: JSON.stringify({ oc: "/vk-menu-close" }),
+            },
+            color: "secondary",
+          },
+        ],
+      ],
+    });
+
+    const launcherEdit = requestedUrls.find(
+      (url) => url.pathname === "/method/messages.edit" && url.searchParams.get("cmid") === "205",
+    );
+    expect(launcherEdit).toBeDefined();
+    expect(launcherEdit?.searchParams.get("message")).toBe(
+      "VK uses buttons for command menus. Choose a command:",
+    );
   });
 
   it("advertises VK inline buttons to the agent prompt and message tool", () => {

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createVkLongPollMonitor, parseVkConfig, resolveVkAccount } from "../../api.js";
-
-type VkLongPollMonitorOptions = Parameters<typeof createVkLongPollMonitor>[0];
-type VkConsentEvent = Parameters<NonNullable<VkLongPollMonitorOptions["onConsent"]>>[0];
-type VkInteractiveEvent = Parameters<NonNullable<VkLongPollMonitorOptions["onInteractiveEvent"]>>[0];
+import type { VkLongPollMonitorOptions } from "../../src/vk-core/types/longpoll.js";
 
 function createAccount(overrides?: {
   config?: unknown;
@@ -41,7 +38,7 @@ describe("vk long poll monitor", () => {
       account,
       waitSeconds: 1,
       reconnectDelayMs: 0,
-      fetchImpl: async (input: string | URL | Request) => {
+      fetchImpl: async (input: Parameters<NonNullable<VkLongPollMonitorOptions["fetchImpl"]>>[0]) => {
         const url = String(input);
         requests.push(url);
 
@@ -149,7 +146,7 @@ describe("vk long poll monitor", () => {
       account,
       waitSeconds: 1,
       reconnectDelayMs: 0,
-      fetchImpl: async (input: string | URL | Request) => {
+      fetchImpl: async (input: Parameters<NonNullable<VkLongPollMonitorOptions["fetchImpl"]>>[0]) => {
         const url = String(input);
 
         if (url.includes("groups.getLongPollServer")) {
@@ -214,6 +211,95 @@ describe("vk long poll monitor", () => {
       reconnectAttempts: 1,
       deliveredEvents: 1,
       stopReason: "received-after-reconnect",
+    });
+  });
+
+  it("retries the current long poll server after a transient poll fetch failure", async () => {
+    const account = createAccount();
+    const serverRequests: string[] = [];
+    const pollRequests: string[] = [];
+    const warnings: string[] = [];
+    let pollCalls = 0;
+
+    const monitor = createVkLongPollMonitor({
+      account,
+      waitSeconds: 1,
+      reconnectDelayMs: 0,
+      fetchImpl: async (input: Parameters<NonNullable<VkLongPollMonitorOptions["fetchImpl"]>>[0]) => {
+        const url = String(input);
+
+        if (url.includes("groups.getLongPollServer")) {
+          serverRequests.push(url);
+          return new Response(
+            JSON.stringify({
+              response: {
+                server: "https://lp.vk.test/transient",
+                key: "transient-key",
+                ts: "500",
+              },
+            }),
+          );
+        }
+
+        pollRequests.push(url);
+        pollCalls += 1;
+        if (pollCalls === 1) {
+          const error = new TypeError("fetch failed") as TypeError & {
+            cause?: { code?: string; message?: string };
+          };
+          error.cause = {
+            code: "ECONNRESET",
+            message: "socket hang up",
+          };
+          throw error;
+        }
+
+        return new Response(
+          JSON.stringify({
+            ts: "501",
+            updates: [
+              {
+                type: "message_new",
+                group_id: 77,
+                event_id: "evt-transient-1",
+                object: {
+                  message: {
+                    id: 901,
+                    peer_id: 42,
+                    from_id: 42,
+                    text: "Recovered after transient error",
+                    date: 1_700_000_300,
+                  },
+                },
+              },
+            ],
+          }),
+        );
+      },
+      onMessage: () => {
+        monitor.stop("received-after-transient-retry");
+      },
+      logger: {
+        warn: (message) => {
+          warnings.push(message);
+        },
+      },
+    });
+
+    await monitor.start();
+
+    expect(serverRequests).toHaveLength(1);
+    expect(pollRequests).toHaveLength(2);
+    expect(pollRequests[0]).toContain("https://lp.vk.test/transient");
+    expect(pollRequests[1]).toContain("https://lp.vk.test/transient");
+    expect(warnings).toEqual([
+      "[default] VK long poll transport error: fetch failed (ECONNRESET: socket hang up); retrying current long poll server",
+    ]);
+    expect(monitor.getStatus()).toMatchObject({
+      state: "stopped",
+      reconnectAttempts: 1,
+      deliveredEvents: 1,
+      stopReason: "received-after-transient-retry",
     });
   });
 
@@ -299,7 +385,7 @@ describe("vk long poll monitor", () => {
       account,
       waitSeconds: 1,
       reconnectDelayMs: 0,
-      fetchImpl: async (input: string | URL | Request) => {
+      fetchImpl: async (input: Parameters<NonNullable<VkLongPollMonitorOptions["fetchImpl"]>>[0]) => {
         const url = String(input);
         if (url.includes("groups.getLongPollServer")) {
           return new Response(
@@ -357,14 +443,18 @@ describe("vk long poll monitor", () => {
       onMessage: () => {
         throw new Error("message handler should not be called for consent-only event batch");
       },
-      onConsent: (event: VkConsentEvent) => {
+      onConsent: (
+        event: Parameters<NonNullable<VkLongPollMonitorOptions["onConsent"]>>[0],
+      ) => {
         consentEvents.push({
           eventType: event.eventType,
           senderId: event.senderId,
           consentState: event.consentState,
         });
       },
-      onInteractiveEvent: (event: VkInteractiveEvent) => {
+      onInteractiveEvent: (
+        event: Parameters<NonNullable<VkLongPollMonitorOptions["onInteractiveEvent"]>>[0],
+      ) => {
         interactiveEvents.push({
           transport: event.transport,
           eventType: event.eventType,

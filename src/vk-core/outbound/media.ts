@@ -1,13 +1,8 @@
 import { readFile, realpath } from "node:fs/promises";
-import {
-  basename,
-  extname,
-  isAbsolute,
-  resolve as resolvePath,
-  sep,
-} from "node:path";
+import { basename, extname, isAbsolute, resolve as resolvePath, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-
+import { normalizeVkConversationMessageId } from "../../reply-to.js";
+import { formatVkOutboundMessage } from "../../text-format.js";
 import {
   editVkMessage,
   getVkDocumentUploadServer,
@@ -19,9 +14,7 @@ import {
   uploadVkMultipart,
   VkApiError,
 } from "../core/api.js";
-import { formatVkOutboundMessage } from "../../text-format.js";
 import type { ResolvedVkAccount } from "../types/config.js";
-import { normalizeVkConversationMessageId } from "../../reply-to.js";
 import { normalizeVkPeerId, resolveVkRandomId } from "./send.js";
 
 const DEFAULT_MEDIA_TITLE = "attachment";
@@ -123,7 +116,35 @@ export type VkSendPayloadResult = {
   edited?: boolean;
 };
 
-const VK_EDIT_FALLBACK_CODES = new Set([909, 920]);
+const VK_EDIT_FALLBACK_CODES = new Set([100, 909, 920]);
+const VK_CONVERSATION_MESSAGE_ID_RETRY_DELAYS_MS = [0, 150, 400] as const;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function resolveVkConversationMessageIdWithRetry(params: {
+  token: string;
+  peerId: number;
+  messageId: string;
+  apiVersion?: string;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}): Promise<string | undefined> {
+  for (const delayMs of VK_CONVERSATION_MESSAGE_ID_RETRY_DELAYS_MS) {
+    if (delayMs > 0) {
+      await sleep(delayMs);
+    }
+    const conversationMessageId = await resolveVkConversationMessageIdForMessage(params);
+    if (conversationMessageId) {
+      return conversationMessageId;
+    }
+  }
+
+  return undefined;
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -150,9 +171,7 @@ function mimeFromExtension(value?: string): string | undefined {
     return undefined;
   }
 
-  return MIME_BY_EXTENSION[
-    extension.startsWith(".") ? extension : `.${extension}`
-  ];
+  return MIME_BY_EXTENSION[extension.startsWith(".") ? extension : `.${extension}`];
 }
 
 function extensionFromMimeType(value?: string): string | undefined {
@@ -164,16 +183,11 @@ function extensionFromMimeType(value?: string): string | undefined {
   return EXTENSION_BY_MIME[normalized];
 }
 
-function normalizeTitle(params: {
-  title?: string;
-  mediaUrl?: string;
-  mimeType?: string;
-}): string {
+function normalizeTitle(params: { title?: string; mediaUrl?: string; mimeType?: string }): string {
   const fromTitle = normalizeFileNameCandidate(params.title);
   const fromUrl = params.mediaUrl
     ? normalizeFileNameCandidate(
-        params.mediaUrl.startsWith("http://") ||
-          params.mediaUrl.startsWith("https://")
+        params.mediaUrl.startsWith("http://") || params.mediaUrl.startsWith("https://")
           ? new URL(params.mediaUrl).pathname
           : params.mediaUrl,
       )
@@ -235,9 +249,7 @@ function decodeDataUrl(dataUrl: string): {
   mimeType?: string;
   title: string;
 } {
-  const match = dataUrl.match(
-    /^data:([^;,]+)?(?:;charset=[^;,]+)?(;base64)?,(.*)$/i,
-  );
+  const match = dataUrl.match(/^data:([^;,]+)?(?:;charset=[^;,]+)?(;base64)?,(.*)$/i);
   if (!match) {
     throw new Error("Invalid data URL");
   }
@@ -258,9 +270,7 @@ async function resolveAllowedLocalPath(
   input: string,
   mediaLocalRoots?: readonly string[],
 ): Promise<string> {
-  const normalizedInput = input.startsWith("file://")
-    ? fileURLToPath(input)
-    : input;
+  const normalizedInput = input.startsWith("file://") ? fileURLToPath(input) : input;
   const absoluteCandidate = isAbsolute(normalizedInput)
     ? normalizedInput
     : resolvePath(normalizedInput);
@@ -287,9 +297,7 @@ async function resolveAllowedLocalPath(
   ).filter((root): root is string => Boolean(root));
 
   const isAllowed = resolvedRoots.some(
-    (root) =>
-      resolvedCandidate === root ||
-      resolvedCandidate.startsWith(`${root}${sep}`),
+    (root) => resolvedCandidate === root || resolvedCandidate.startsWith(`${root}${sep}`),
   );
   if (!isAllowed) {
     throw new Error(`Local media path is outside allowed roots: ${input}`);
@@ -315,11 +323,7 @@ async function loadRemoteMedia(params: {
     throw new Error(`Failed to fetch media: HTTP ${String(response.status)}`);
   }
 
-  const mimeType = response.headers
-    .get("content-type")
-    ?.split(";")[0]
-    ?.trim()
-    .toLowerCase();
+  const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
   const title = normalizeTitle({
     title: basename(new URL(params.mediaUrl).pathname),
     mediaUrl: params.mediaUrl,
@@ -406,9 +410,7 @@ function normalizeSavedDocument(response: unknown): {
 } {
   const record = asRecord(response);
   const attachment =
-    asRecord(record?.doc) ??
-    asRecord(record?.audio_message) ??
-    asRecord(record?.graffiti);
+    asRecord(record?.doc) ?? asRecord(record?.audio_message) ?? asRecord(record?.graffiti);
   const ownerId = Number(attachment?.owner_id ?? attachment?.ownerId);
   const id = Number(attachment?.id);
   const accessKey =
@@ -500,10 +502,7 @@ export async function loadVkOutboundMedia(
     };
   }
 
-  const localPath = await resolveAllowedLocalPath(
-    mediaUrl,
-    options.mediaLocalRoots,
-  );
+  const localPath = await resolveAllowedLocalPath(mediaUrl, options.mediaLocalRoots);
   const source = await readFile(localPath);
   const title = normalizeTitle({
     title: options.preferredName ?? basename(localPath),
@@ -528,9 +527,7 @@ export async function loadVkOutboundMedia(
   };
 }
 
-export async function uploadVkMedia(
-  options: VkUploadMediaOptions,
-): Promise<VkUploadedMedia> {
+export async function uploadVkMedia(options: VkUploadMediaOptions): Promise<VkUploadedMedia> {
   if (!options.account.token) {
     throw new Error(options.account.tokenError ?? "VK token is not configured");
   }
@@ -627,9 +624,7 @@ export async function uploadVkMedia(
   };
 }
 
-export async function sendVkPayload(
-  options: VkSendPayloadOptions,
-): Promise<VkSendPayloadResult> {
+export async function sendVkPayload(options: VkSendPayloadOptions): Promise<VkSendPayloadResult> {
   if (!options.account.token) {
     throw new Error(options.account.tokenError ?? "VK token is not configured");
   }
@@ -656,9 +651,7 @@ export async function sendVkPayload(
     attachments.push(uploaded.attachment);
   }
 
-  const formatted = options.text
-    ? formatVkOutboundMessage(options.text)
-    : undefined;
+  const formatted = options.text ? formatVkOutboundMessage(options.text) : undefined;
   if (!formatted?.text && attachments.length === 0) {
     throw new Error("VK payload requires text or media");
   }
@@ -695,10 +688,7 @@ export async function sendVkPayload(
         edited: true,
       };
     } catch (error) {
-      if (
-        !(error instanceof VkApiError) ||
-        !VK_EDIT_FALLBACK_CODES.has(error.code)
-      ) {
+      if (!(error instanceof VkApiError) || !VK_EDIT_FALLBACK_CODES.has(error.code)) {
         throw error;
       }
     }
@@ -730,7 +720,7 @@ export async function sendVkPayload(
     attachments,
     conversationMessageId:
       options.keyboard || editConversationMessageId
-        ? await resolveVkConversationMessageIdForMessage({
+        ? await resolveVkConversationMessageIdWithRetry({
             token: options.account.token,
             peerId,
             messageId,

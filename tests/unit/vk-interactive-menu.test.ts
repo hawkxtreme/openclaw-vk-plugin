@@ -2,13 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const editVkMessageMock = vi.hoisted(() => vi.fn());
 const listVkRecentInteractiveMessagesMock = vi.hoisted(() => vi.fn());
-const resolveVkLatestInteractiveConversationMessageIdMock = vi.hoisted(() =>
-  vi.fn(),
-);
+const resolveVkLatestInteractiveConversationMessageIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../src/vk-core/core/api.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../src/vk-core/core/api.js")>();
+  const actual = await importOriginal<typeof import("../../src/vk-core/core/api.js")>();
   return {
     ...actual,
     editVkMessage: editVkMessageMock,

@@ -295,6 +295,7 @@ export async function resolveVkLatestInteractiveConversationMessageId(params: {
 export type VkInteractiveMessageSummary = {
   conversationMessageId: string;
   text?: string;
+  inline?: boolean;
 };
 
 export function extractVkInteractiveMessageSummaries(
@@ -315,11 +316,16 @@ export function extractVkInteractiveMessageSummaries(
     if (record.out !== 1 || typeof record.keyboard !== "object" || record.keyboard === null) {
       continue;
     }
+    const keyboard = record.keyboard as {
+      inline?: unknown;
+    };
     const conversationMessageId = String(record.conversation_message_id ?? "").trim();
     if (/^\d+$/u.test(conversationMessageId)) {
+      const inline = keyboard.inline === true || keyboard.inline === 1 || keyboard.inline === "1";
       result.push({
         conversationMessageId,
         text: typeof record.text === "string" ? record.text : undefined,
+        ...(inline ? { inline: true } : {}),
       });
     }
   }

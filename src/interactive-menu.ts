@@ -71,13 +71,30 @@ export async function resolveLatestVkInteractiveMenuId(params: {
   });
 }
 
+export async function resolveLatestVkReplyKeyboardMenu(params: {
+  account: ResolvedVkAccount;
+  peerId: string;
+  fetchImpl?: typeof fetch;
+}) {
+  const menus = await listVkRecentInteractiveMessages({
+    token: params.account.token,
+    peerId: Number(params.peerId),
+    apiVersion: params.account.config.apiVersion,
+    fetchImpl: params.fetchImpl,
+  });
+
+  return menus.find((menu) => menu.inline !== true);
+}
+
 export async function retireOlderVkInteractiveMenus(params: {
   account: ResolvedVkAccount;
   peerId: string;
   keepConversationMessageId: string;
+  skipConversationMessageIds?: readonly string[];
   log?: VkInteractiveMenuLog;
   fetchImpl?: typeof fetch;
 }): Promise<void> {
+  const skippedConversationMessageIds = new Set(params.skipConversationMessageIds ?? []);
   const menus = await listVkRecentInteractiveMessages({
     token: params.account.token,
     peerId: Number(params.peerId),
@@ -86,7 +103,10 @@ export async function retireOlderVkInteractiveMenus(params: {
   });
 
   for (const menu of menus) {
-    if (menu.conversationMessageId === params.keepConversationMessageId) {
+    if (
+      menu.conversationMessageId === params.keepConversationMessageId ||
+      skippedConversationMessageIds.has(menu.conversationMessageId)
+    ) {
       continue;
     }
     await retireVkInteractiveMenu({

@@ -22,6 +22,8 @@ type VkCommandSuggestion = {
   command: string;
 };
 
+export type VkMenuBehavior = "collapse" | "root";
+
 export const VK_CLOSE_MENU_COMMAND = "/vk-menu-close";
 
 const MODELS_PAGE_SIZE = 6;
@@ -98,8 +100,8 @@ function chunkButtons(buttons: readonly VkReplyButton[], size: number): VkReplyB
 }
 
 function toChannelData(
-  buttons: VkReplyButtons,
-  options: { inline?: boolean; oneTime?: boolean } = {},
+  buttons: VkReplyButtons | VkReplyButton[][],
+  options: { inline?: boolean; oneTime?: boolean; longPollInlineCallback?: boolean } = {},
 ): ReplyPayload["channelData"] | null {
   if (buttons.length === 0) {
     return null;
@@ -109,6 +111,7 @@ function toChannelData(
     buttons,
     ...(options.inline ? { inline: true } : {}),
     ...(options.oneTime !== undefined ? { oneTime: options.oneTime } : {}),
+    ...(options.longPollInlineCallback === true ? { longPollInlineCallback: true } : {}),
   };
 
   return { vk: spec };
@@ -124,6 +127,31 @@ function truncateLabel(value: string, maxChars = MAX_MODEL_LABEL_CHARS): string 
 
 function appendCloseRow(rows: VkReplyButton[][]): VkReplyButton[][] {
   return [...rows, [{ text: "Close", callback_data: VK_CLOSE_MENU_COMMAND }]];
+}
+
+function appendBackAndCloseRow(
+  rows: VkReplyButton[][],
+  backCallbackData: string,
+): VkReplyButton[][] {
+  return [
+    ...rows,
+    [
+      { text: "< Back", callback_data: backCallbackData },
+      { text: "Close", callback_data: VK_CLOSE_MENU_COMMAND },
+    ],
+  ];
+}
+
+function buildVkPrimaryCommandRows(): VkReplyButton[][] {
+  return appendCloseRow(
+    chunkButtons(
+      VK_PRIMARY_COMMAND_SUGGESTIONS.map((entry) => ({
+        text: entry.label,
+        callback_data: entry.command,
+      })),
+      COMMAND_SUGGESTIONS_PER_ROW,
+    ),
+  );
 }
 
 function shortenToolGroupLabel(label: string): string {
@@ -191,6 +219,14 @@ export function buildVkCommandsListChannelData(params: {
   });
 }
 
+export function buildVkRootCommandKeyboardSpec(params?: { inline?: boolean }): VkKeyboardSpec {
+  return {
+    buttons: buildVkPrimaryCommandRows(),
+    ...(params?.inline ? { inline: true } : {}),
+    oneTime: false,
+  };
+}
+
 export function buildVkModelsProviderChannelData(params: {
   providers: ProviderInfo[];
   currentPage?: number;
@@ -202,8 +238,8 @@ export function buildVkModelsProviderChannelData(params: {
   const currentPage = Math.max(1, params.currentPage ?? 1);
   const totalPages = Math.max(currentPage, params.totalPages ?? currentPage);
   // Live VK callback keyboards reject middle provider pages with 11 buttons
-  // (8 providers + Prev + Next + Close). Reserve room for navigation/close.
-  const reservedControlButtons = (currentPage > 1 ? 1 : 0) + (currentPage < totalPages ? 1 : 0) + 1;
+  // (8 providers + Prev + Next + Back + Close). Reserve room for navigation.
+  const reservedControlButtons = (currentPage > 1 ? 1 : 0) + (currentPage < totalPages ? 1 : 0) + 2;
   const providerButtonLimit = Math.max(
     1,
     Math.min(PROVIDERS_PAGE_SIZE, MAX_INLINE_CALLBACK_BUTTONS - reservedControlButtons),
@@ -233,9 +269,10 @@ export function buildVkModelsProviderChannelData(params: {
     rows.push(pagination);
   }
 
-  return toChannelData(appendCloseRow(rows), {
+  return toChannelData(appendBackAndCloseRow(rows, "/commands"), {
     inline: true,
     oneTime: false,
+    longPollInlineCallback: true,
   });
 }
 
@@ -298,6 +335,7 @@ export function buildVkModelsListChannelData(params: {
   return toChannelData(rows, {
     inline: true,
     oneTime: false,
+    longPollInlineCallback: true,
   });
 }
 
@@ -306,6 +344,7 @@ export function buildVkModelBrowseChannelData(): ReplyPayload["channelData"] {
     vk: {
       inline: true,
       oneTime: false,
+      longPollInlineCallback: true,
       buttons: [
         [{ text: "Browse providers", callback_data: "/models" }],
         [{ text: "Close", callback_data: VK_CLOSE_MENU_COMMAND }],
@@ -325,7 +364,10 @@ export function buildVkToolsGroupListChannelData(params: {
 
   const rows = chunkButtons(
     params.groups.map((group) => ({
-      text: `${shortenToolGroupLabel(group.label)} (${group.count})`,
+      text:
+        group.count > 0
+          ? `${shortenToolGroupLabel(group.label)} (${group.count})`
+          : shortenToolGroupLabel(group.label),
       callback_data: `/tools ${group.id}`,
     })),
     TOOL_GROUPS_PER_ROW,
@@ -350,9 +392,10 @@ export function buildVkToolsGroupListChannelData(params: {
     }
   }
 
-  return toChannelData(appendCloseRow(rows), {
+  return toChannelData(appendBackAndCloseRow(rows, "/commands"), {
     inline: true,
     oneTime: false,
+    longPollInlineCallback: true,
   });
 }
 
@@ -408,6 +451,7 @@ export function buildVkToolsListChannelData(params: {
   return toChannelData(rows, {
     inline: true,
     oneTime: false,
+    longPollInlineCallback: true,
   });
 }
 
@@ -434,6 +478,7 @@ export function buildVkToolDetailsChannelData(params: {
     {
       inline: true,
       oneTime: false,
+      longPollInlineCallback: true,
     },
   );
 }
@@ -470,15 +515,17 @@ export function resolveVkSlashCommandSuggestionReply(
   }
 
   const channelData = toChannelData(
-    appendCloseRow(
-      chunkButtons(
-        matches.map((entry) => ({
-          text: entry.label,
-          callback_data: entry.command,
-        })),
-        COMMAND_SUGGESTIONS_PER_ROW,
-      ) as VkReplyButton[][],
-    ),
+    normalized === "/" || normalized === "/commands"
+      ? buildVkPrimaryCommandRows()
+      : appendCloseRow(
+          chunkButtons(
+            matches.map((entry) => ({
+              text: entry.label,
+              callback_data: entry.command,
+            })),
+            COMMAND_SUGGESTIONS_PER_ROW,
+          ),
+        ),
     {
       inline: true,
       oneTime: false,

@@ -1,40 +1,37 @@
 import { createAttachedChannelResultAdapter } from "openclaw/plugin-sdk/channel-send-result";
 import { buildChannelOutboundSessionRoute } from "openclaw/plugin-sdk/core";
-import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
+import type { ChannelPlugin } from "openclaw/plugin-sdk/core";
 import {
   normalizeInteractiveReply,
   resolveInteractiveTextFallback,
 } from "openclaw/plugin-sdk/interactive-runtime";
-import type { ChannelPlugin } from "openclaw/plugin-sdk/core";
+import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
+import { resolveDefaultVkAccountId, resolveVkAccount, type ResolvedVkAccount } from "./accounts.js";
+import { buildVkRootCommandKeyboardSpec, type VkMenuBehavior } from "./command-ui.js";
 import {
-  resolveDefaultVkAccountId,
-  resolveVkAccount,
-  type ResolvedVkAccount,
-} from "./accounts.js";
-import type { OpenClawConfig } from "./types.js";
+  resolveLatestVkInteractiveMenuId,
+  resolveLatestVkReplyKeyboardMenu,
+  retireOlderVkInteractiveMenus,
+} from "./interactive-menu.js";
 import {
   forgetVkInteractiveMessageId,
   rememberVkInteractiveMessageId,
   resolveRememberedVkInteractiveMessageId,
 } from "./interactive-state.js";
-import {
-  resolveLatestVkInteractiveMenuId,
-  retireOlderVkInteractiveMenus,
-} from "./interactive-menu.js";
 import { buildVkKeyboard, resolveVkKeyboardSpecFromPayload } from "./keyboard.js";
-import {
-  normalizeVkConversationMessageId,
-  normalizeVkReplyToId,
-} from "./reply-to.js";
+import { normalizeVkConversationMessageId, normalizeVkReplyToId } from "./reply-to.js";
+import { editVkMessage } from "./vk-core/core/api.js";
 import { sendVkPayload } from "./vk-core/outbound/media.js";
 import { normalizeVkPeerId, sendVkText } from "./vk-core/outbound/send.js";
 
 const VK_GROUP_CHAT_PEER_ID_MIN = 2_000_000_000;
+const VK_ROOT_COMMAND_MENU_TEXT = "VK uses buttons for command menus. Choose a command:";
+type VkSendPayloadContext = Parameters<
+  NonNullable<NonNullable<ChannelPlugin<ResolvedVkAccount>["outbound"]>["sendPayload"]>
+>[0];
 
-function resolveVkChannelData(
-  payload: ReplyPayload,
-): Record<string, unknown> | undefined {
+function resolveVkChannelData(payload: ReplyPayload): Record<string, unknown> | undefined {
   const channelData = payload.channelData;
   if (!channelData || typeof channelData !== "object" || Array.isArray(channelData)) {
     return undefined;
@@ -45,23 +42,31 @@ function resolveVkChannelData(
     : undefined;
 }
 
-function resolveVkMenuBehavior(
-  payload: ReplyPayload,
-): "collapse" | undefined {
+function resolveVkMenuBehavior(payload: ReplyPayload): VkMenuBehavior | undefined {
   const menuBehavior = resolveVkChannelData(payload)?.menuBehavior;
-  return menuBehavior === "collapse" ? "collapse" : undefined;
+  return menuBehavior === "collapse" || menuBehavior === "root" ? menuBehavior : undefined;
 }
 
-function buildVkCollapsedMenuKeyboard(
-  transport: ResolvedVkAccount["config"]["transport"],
-): string | undefined {
+function buildVkMenuBehaviorKeyboard(params: {
+  behavior: VkMenuBehavior;
+  transport: ResolvedVkAccount["config"]["transport"];
+}): string | undefined {
+  if (params.behavior === "root") {
+    return buildVkKeyboard(
+      buildVkRootCommandKeyboardSpec({
+        inline: params.transport === "callback-api",
+      }),
+      params.transport,
+    );
+  }
+
   return buildVkKeyboard(
     {
-      inline: transport === "callback-api",
+      inline: params.transport === "callback-api",
       oneTime: false,
       buttons: [[{ text: "Menu", callback_data: "/commands" }]],
     },
-    transport,
+    params.transport,
   );
 }
 
@@ -118,8 +123,76 @@ async function sendVkOutboundPayload(params: {
   };
 }
 
+async function syncVkLongPollRootLauncher(params: {
+  account: ResolvedVkAccount;
+  peerId: string;
+  keepConversationMessageId: string;
+}): Promise<string | undefined> {
+  try {
+    const launcherMenu = await resolveLatestVkReplyKeyboardMenu({
+      account: params.account,
+      peerId: params.peerId,
+    });
+    if (
+      !launcherMenu?.conversationMessageId ||
+      launcherMenu.conversationMessageId === params.keepConversationMessageId
+    ) {
+      return undefined;
+    }
+
+    const keyboard = buildVkMenuBehaviorKeyboard({
+      behavior: "root",
+      transport: params.account.config.transport,
+    });
+    if (!keyboard) {
+      return undefined;
+    }
+
+    await editVkMessage({
+      token: params.account.token,
+      peerId: normalizeVkPeerId(params.peerId),
+      conversationMessageId: launcherMenu.conversationMessageId,
+      message: VK_ROOT_COMMAND_MENU_TEXT,
+      keyboard,
+      apiVersion: params.account.config.apiVersion,
+    });
+
+    return launcherMenu.conversationMessageId;
+  } catch {
+    return undefined;
+  }
+}
+
+async function shouldSendFreshLongPollInlineMenu(params: {
+  account: ResolvedVkAccount;
+  peerId: string;
+  requestedEditConversationMessageId?: string;
+  requestedKeyboardSpec?: ReturnType<typeof resolveVkKeyboardSpecFromPayload>;
+}): Promise<boolean> {
+  if (
+    params.account.config.transport !== "long-poll" ||
+    !params.requestedEditConversationMessageId ||
+    params.requestedKeyboardSpec?.inline !== true ||
+    params.requestedKeyboardSpec.longPollInlineCallback !== true
+  ) {
+    return false;
+  }
+
+  try {
+    const latestReplyKeyboardMenu = await resolveLatestVkReplyKeyboardMenu({
+      account: params.account,
+      peerId: params.peerId,
+    });
+    return (
+      latestReplyKeyboardMenu?.conversationMessageId === params.requestedEditConversationMessageId
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function sendVkResolvedOutboundPayload(params: {
-  cfg: OpenClawConfig;
+  cfg: VkSendPayloadContext["cfg"];
   to: string;
   payload: ReplyPayload;
   accountId?: string | null;
@@ -142,14 +215,42 @@ export async function sendVkResolvedOutboundPayload(params: {
     ...params.payload,
     text: resolvedText,
   });
-  const requestedKeyboard = buildVkKeyboard(
-    resolveVkKeyboardSpecFromPayload(params.payload),
-    account.config.transport,
-  );
+  const requestedKeyboardSpec = resolveVkKeyboardSpecFromPayload(params.payload);
+  const requestedKeyboard = buildVkKeyboard(requestedKeyboardSpec, account.config.transport);
+  if (process.env.OPENCLAW_VK_DEBUG_KEYBOARD === "1" && requestedKeyboardSpec) {
+    console.warn(
+      `[vk-keyboard] ${JSON.stringify({
+        accountId: account.accountId,
+        transport: account.config.transport,
+        to: params.to,
+        textPreview: parts.trimmedText.slice(0, 120),
+        requestedKeyboardSpec,
+        requestedKeyboard,
+        channelDataVk:
+          params.payload.channelData &&
+          typeof params.payload.channelData === "object" &&
+          !Array.isArray(params.payload.channelData) &&
+          (params.payload.channelData as Record<string, unknown>).vk &&
+          typeof (params.payload.channelData as Record<string, unknown>).vk === "object" &&
+          !Array.isArray((params.payload.channelData as Record<string, unknown>).vk)
+            ? ((params.payload.channelData as Record<string, unknown>).vk as Record<
+                string,
+                unknown
+              >)
+            : undefined,
+      })}`,
+    );
+  }
   const menuBehavior = resolveVkMenuBehavior(params.payload);
   const requestedEditConversationMessageId = normalizeVkConversationMessageId(
     params.editConversationMessageId ?? null,
   );
+  const sendFreshLongPollInlineMenu = await shouldSendFreshLongPollInlineMenu({
+    account,
+    peerId: params.to,
+    requestedEditConversationMessageId,
+    requestedKeyboardSpec,
+  });
   let rememberedInteractiveMessageId: string | undefined;
   if (
     account.config.transport === "callback-api" &&
@@ -175,16 +276,23 @@ export async function sendVkResolvedOutboundPayload(params: {
       }
     }
   }
-  const editConversationMessageId =
-    requestedEditConversationMessageId ??
-    rememberedInteractiveMessageId;
+  const editConversationMessageId = sendFreshLongPollInlineMenu
+    ? undefined
+    : (requestedEditConversationMessageId ?? rememberedInteractiveMessageId);
   const shouldClearRememberedMenu =
     Boolean(editConversationMessageId) && !requestedKeyboard && !parts.mediaUrls.length;
-  const shouldAttachCollapsedLauncher =
-    menuBehavior === "collapse" && !requestedKeyboard && !parts.mediaUrls.length;
-  const keyboard =
-    shouldClearRememberedMenu || shouldAttachCollapsedLauncher
-      ? buildVkCollapsedMenuKeyboard(account.config.transport)
+  const shouldAttachMenuBehaviorKeyboard =
+    Boolean(menuBehavior) && !requestedKeyboard && !parts.mediaUrls.length;
+  const keyboard = shouldClearRememberedMenu
+    ? buildVkMenuBehaviorKeyboard({
+        behavior: "collapse",
+        transport: account.config.transport,
+      })
+    : shouldAttachMenuBehaviorKeyboard && menuBehavior
+      ? buildVkMenuBehaviorKeyboard({
+          behavior: menuBehavior,
+          transport: account.config.transport,
+        })
       : requestedKeyboard;
 
   const result = await sendVkOutboundPayload({
@@ -213,10 +321,25 @@ export async function sendVkResolvedOutboundPayload(params: {
       peerId: params.to,
       conversationMessageId: rememberedConversationMessageId,
     });
+    const shouldSyncLongPollRootLauncher =
+      account.config.transport === "long-poll" &&
+      requestedKeyboardSpec?.inline === true &&
+      requestedKeyboardSpec.longPollInlineCallback === true &&
+      !parts.mediaUrls.length;
+    const preservedLongPollLauncherMessageId = shouldSyncLongPollRootLauncher
+      ? await syncVkLongPollRootLauncher({
+          account,
+          peerId: params.to,
+          keepConversationMessageId: rememberedConversationMessageId,
+        })
+      : undefined;
     await retireOlderVkInteractiveMenus({
       account,
       peerId: params.to,
       keepConversationMessageId: rememberedConversationMessageId,
+      ...(preservedLongPollLauncherMessageId
+        ? { skipConversationMessageIds: [preservedLongPollLauncherMessageId] }
+        : {}),
     });
   }
 
@@ -274,7 +397,16 @@ export const vkOutboundAdapter: NonNullable<ChannelPlugin<ResolvedVkAccount>["ou
         },
       };
     },
-    sendMedia: async ({ cfg, to, text, mediaUrl, accountId, replyToId, mediaLocalRoots, forceDocument }) => {
+    sendMedia: async ({
+      cfg,
+      to,
+      text,
+      mediaUrl,
+      accountId,
+      replyToId,
+      mediaLocalRoots,
+      forceDocument,
+    }) => {
       const account = resolveVkAccount({
         cfg,
         accountId,
