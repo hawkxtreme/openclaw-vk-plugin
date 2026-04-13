@@ -1,5 +1,39 @@
 # Verification
 
+## Latest live result: 2026-04-13
+
+Latest standalone live verification on `main` used a Docker runtime with the
+published standalone plugin installed into OpenClaw state and overriding the
+bundled `vk` channel plugin.
+
+Confirmed in a real VK DM:
+
+- `openclaw channels status --json --probe` reports `configured=true`,
+  `running=true`, and `probe.ok=true`
+- `Status` returns a fresh bot status message
+- `Help` returns a fresh help message
+- `Tools` opens the tool-group menu
+- `Built-in` opens paginated tool results
+- `Next >` and `< Back` work
+- `Close` collapses the menu to the composer launcher state
+- the collapsed launcher can reopen the full menu with `Menu`
+- `Status` still works after `Close -> Menu -> reopen`
+- plain text chat still works after menu interactions
+
+Observed caveats during the same live run:
+
+- Docker logs show an expected duplicate-plugin warning because the standalone
+  plugin overrides the bundled `vk` plugin inside the OpenClaw image
+- VK Web can attach unexpected UI decorations to user messages without breaking
+  the actual bot reply path
+
+Not re-verified in that latest pass:
+
+- group-chat smoke
+- inbound image understanding
+- inbound voice understanding
+- outbound media delivery
+
 ## What to verify locally
 
 - probe succeeds
