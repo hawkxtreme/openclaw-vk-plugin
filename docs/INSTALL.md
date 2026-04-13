@@ -9,7 +9,7 @@
 ## Option 1: install from a local checkout
 
 ```bash
-openclaw plugins install ./path/to/openclaw-vk-plugin
+openclaw plugins install .
 openclaw plugins enable vk
 ```
 
@@ -49,6 +49,20 @@ Before the first probe:
 openclaw channels status --probe
 ```
 
+## Fastest non-interactive setup
+
+```bash
+openclaw plugins install .
+openclaw plugins enable vk
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+openclaw gateway restart
+openclaw channels status --json --probe
+```
+
 ## Minimal workflow
 
 1. Install the plugin
@@ -64,3 +78,9 @@ openclaw channels status --probe
 - no tunnel lifecycle problems
 - no callback secret or confirmation code
 - easier local and Docker verification
+
+## Docker note
+
+If OpenClaw already runs in Docker, mount this repo into the container and run
+the same plugin install and `openclaw config set ...` commands inside that
+container.

@@ -2,11 +2,12 @@
 
 # OpenClaw VK Plugin
 
-Отдельный VK-плагин для OpenClaw.
+Отдельный VK-плагин для OpenClaw с long-poll-first запуском, кнопочными меню,
+групповыми чатами и поддержкой медиа.
 
 ## Что это за репозиторий
 
-Этот репозиторий выносит VK-канал в отдельный плагин со сценарием
+Этот репозиторий выносит VK-канал в отдельный standalone-плагин со сценарием
 `long-poll-first`:
 
 - без публичного туннеля в обычной установке
@@ -25,13 +26,62 @@ Callback API вынесена в отдельную архивную ветку 
 - Лучше покрытие VK:
   личка, групповые чаты, кнопки, медиа и группы с обязательным mention
 - Лучше интеграция с OpenClaw:
-  метаданные плагина, setup, status, probe и security contract соответствуют
-  модели OpenClaw plugin SDK
+  metadata, setup, status, probe и security contract следуют OpenClaw plugin SDK
 - Лучше UX:
   меню команд, моделей и tools сделаны через кнопки, а не через запоминание
   команд на телефоне
 
-## Быстрый старт
+## Самый быстрый запуск
+
+Это самый короткий путь, если вы хотите проверить плагин прямо из этого репо
+до какой-либо публикации в npm.
+
+### Bash
+
+```bash
+git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
+cd openclaw-vk-plugin
+
+openclaw plugins install .
+openclaw plugins enable vk
+
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+
+openclaw gateway restart
+openclaw channels status --json --probe
+```
+
+### PowerShell
+
+```powershell
+git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
+Set-Location openclaw-vk-plugin
+
+openclaw plugins install .
+openclaw plugins enable vk
+
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken "vk1.a.REPLACE_ME"
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+
+openclaw gateway restart
+openclaw channels status --json --probe
+```
+
+Потом напишите боту в VK. Если `dmPolicy` выставлен в `pairing`, подтвердите
+первый код:
+
+```bash
+openclaw pairing approve vk <CODE>
+```
+
+## Подробности ручной настройки
 
 ### 1. Подготовьте сообщество VK
 
@@ -64,7 +114,7 @@ Callback API вынесена в отдельную архивную ветку 
 Из локального checkout:
 
 ```bash
-openclaw plugins install ./path/to/openclaw-vk-plugin
+openclaw plugins install .
 openclaw plugins enable vk
 ```
 
@@ -77,7 +127,17 @@ openclaw plugins enable vk
 
 ### 3. Настройте OpenClaw
 
-Добавьте VK в `~/.openclaw/openclaw.json`:
+Самый быстрый non-interactive путь:
+
+```bash
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 123456789
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+```
+
+Эквивалент через `~/.openclaw/openclaw.json`:
 
 ```json
 {
@@ -107,11 +167,27 @@ openclaw gateway restart
 openclaw channels status --json --probe
 ```
 
-После этого напишите боту в VK. Если `dmPolicy` выставлен в `pairing`, сначала
-подтвердите pairing:
+Если `dmPolicy` выставлен в `pairing`, сначала подтвердите pairing:
 
 ```bash
 openclaw pairing approve vk <CODE>
+```
+
+## Docker-заметка
+
+Если OpenClaw уже работает в Docker, примонтируйте этот репозиторий в
+контейнер и выполните те же команды внутри контейнера:
+
+```bash
+openclaw plugins install /work/openclaw-vk-plugin
+openclaw plugins enable vk
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 123456789
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+openclaw gateway restart
+openclaw channels status --json --probe
 ```
 
 ## Что должен ловить probe
@@ -139,7 +215,7 @@ Long Poll probe должен находить типовые ошибки:
 - личные сообщения
 - групповые чаты
 - меню команд, моделей и tools
-- исходящие текст и медиа
+- исходящий текст и медиа
 - pairing и allowlist
 
 Отложено на потом:

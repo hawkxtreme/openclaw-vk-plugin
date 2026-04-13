@@ -2,7 +2,8 @@ English | [Русский](README.ru.md)
 
 # OpenClaw VK Plugin
 
-Standalone VK channel plugin for OpenClaw.
+Standalone VK channel plugin for OpenClaw with a long-poll-first setup,
+button-first menus, group chats, and media support.
 
 ## What this repo is
 
@@ -30,7 +31,57 @@ on a separate branch and is not part of the recommended setup.
   command, model, and tool menus are button-first instead of relying on users
   to remember commands on mobile
 
-## Quick start
+## Fastest setup
+
+This is the shortest path if you want to test the plugin from this repo before
+any npm publish.
+
+### Bash
+
+```bash
+git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
+cd openclaw-vk-plugin
+
+openclaw plugins install .
+openclaw plugins enable vk
+
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+
+openclaw gateway restart
+openclaw channels status --json --probe
+```
+
+### PowerShell
+
+```powershell
+git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
+Set-Location openclaw-vk-plugin
+
+openclaw plugins install .
+openclaw plugins enable vk
+
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken "vk1.a.REPLACE_ME"
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+
+openclaw gateway restart
+openclaw channels status --json --probe
+```
+
+Then send a DM to the VK community. If `dmPolicy` is `pairing`, approve the
+first code:
+
+```bash
+openclaw pairing approve vk <CODE>
+```
+
+## Manual setup details
 
 ### 1. Prepare the VK community
 
@@ -60,10 +111,10 @@ VK references:
 
 ### 2. Install the plugin
 
-From a local checkout:
+From this local checkout:
 
 ```bash
-openclaw plugins install ./path/to/openclaw-vk-plugin
+openclaw plugins install .
 openclaw plugins enable vk
 ```
 
@@ -76,7 +127,17 @@ openclaw plugins enable vk
 
 ### 3. Configure OpenClaw
 
-Add VK to `~/.openclaw/openclaw.json`:
+Fastest non-interactive path:
+
+```bash
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 123456789
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+```
+
+Equivalent JSON:
 
 ```json
 {
@@ -111,6 +172,23 @@ request:
 
 ```bash
 openclaw pairing approve vk <CODE>
+```
+
+## Docker note
+
+If OpenClaw already runs in Docker, mount this repo into the container and run
+the same commands inside the container:
+
+```bash
+openclaw plugins install /work/openclaw-vk-plugin
+openclaw plugins enable vk
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 123456789
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+openclaw gateway restart
+openclaw channels status --json --probe
 ```
 
 ## What the probe should catch

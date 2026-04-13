@@ -26,6 +26,26 @@ Key fields:
 - `allowFrom`: allowed DM senders when DM allowlist is used
 - `groupAllowFrom`: allowed group-chat senders when group allowlist is used
 
+## Fastest config commands
+
+```bash
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+```
+
+For Windows PowerShell:
+
+```powershell
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken "vk1.a.REPLACE_ME"
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+```
+
 ## Group-chat controls
 
 ```json
