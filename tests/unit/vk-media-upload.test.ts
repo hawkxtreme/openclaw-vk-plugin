@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -37,6 +40,26 @@ describe("vk media upload", () => {
     expect(media.title).toBe("attachment.png");
     expect(media.mimeType).toBe("image/png");
     expect(Buffer.isBuffer(media.source)).toBe(true);
+  });
+
+  it("loads outbound media from local files inside allowed roots", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "openclaw-vk-media-"));
+    const mediaPath = join(tempRoot, "voice.ogg");
+
+    try {
+      await writeFile(mediaPath, Buffer.from("voice-binary"));
+      const media = await loadVkOutboundMedia({
+        mediaUrl: mediaPath,
+        mediaLocalRoots: [tempRoot],
+      });
+
+      expect(media.kind).toBe("audio_message");
+      expect(media.title).toBe("voice.ogg");
+      expect(media.mimeType).toBe("audio/ogg");
+      expect(media.source.equals(Buffer.from("voice-binary"))).toBe(true);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("uploads photos via photos.getMessagesUploadServer and photos.saveMessagesPhoto", async () => {

@@ -1,4 +1,4 @@
-import { readFile, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { basename, extname, isAbsolute, resolve as resolvePath, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeVkConversationMessageId } from "../../reply-to.js";
@@ -15,6 +15,7 @@ import {
   VkApiError,
 } from "../core/api.js";
 import type { ResolvedVkAccount } from "../types/config.js";
+import { readVkLocalMediaFile } from "./local-file.js";
 import { normalizeVkPeerId, resolveVkRandomId } from "./send.js";
 
 const DEFAULT_MEDIA_TITLE = "attachment";
@@ -503,7 +504,7 @@ export async function loadVkOutboundMedia(
   }
 
   const localPath = await resolveAllowedLocalPath(mediaUrl, options.mediaLocalRoots);
-  const source = await readFile(localPath);
+  const source = await readVkLocalMediaFile(localPath);
   const title = normalizeTitle({
     title: options.preferredName ?? basename(localPath),
     mediaUrl: localPath,

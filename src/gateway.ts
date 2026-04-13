@@ -20,6 +20,7 @@ import {
   resolveRememberedVkInteractiveMessageId,
 } from "./interactive-state.js";
 import { resolveVkCommandFromPayload } from "./keyboard.js";
+import { getProcessEnv } from "./runtime-env.js";
 import type { VkPlugin } from "./types.js";
 import type { OpenClawConfig } from "./types.js";
 import {
@@ -288,7 +289,7 @@ export function createVkCallbackRouteHandler(
   const readBody = options.readBody ?? readWebhookBodyOrReject;
   const callbackHandler = createVkCallbackHandler({
     config: getVkConfig(options.cfg),
-    env: process.env,
+    env: getProcessEnv(),
     onMessage: async (message) => {
       await handleVkInboundMessage({
         cfg: options.cfg,
