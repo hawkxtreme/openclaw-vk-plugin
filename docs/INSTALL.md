@@ -9,11 +9,18 @@
 ## Option 1: install from a local checkout
 
 ```bash
-openclaw plugins install .
+node scripts/prepare-install-dir.mjs
+openclaw plugins install .artifacts/install/vk
 openclaw plugins enable vk
 ```
 
-This is the fastest way to test the plugin before publishing it anywhere.
+This is the fastest copied install path from a cloned repo because it skips the
+full development tree. If you want a live dev link instead, use:
+
+```bash
+openclaw plugins install . --link
+openclaw plugins enable vk
+```
 
 ## Option 2: install from npm
 
@@ -52,7 +59,8 @@ openclaw channels status --probe
 ## Fastest non-interactive setup
 
 ```bash
-openclaw plugins install .
+node scripts/prepare-install-dir.mjs
+openclaw plugins install .artifacts/install/vk
 openclaw plugins enable vk
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 237442417

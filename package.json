@@ -39,6 +39,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
+    "prepare:install-dir": "node scripts/prepare-install-dir.mjs",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",

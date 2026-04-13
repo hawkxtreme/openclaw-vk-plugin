@@ -42,7 +42,8 @@ Callback API вынесена в отдельную архивную ветку 
 git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
 cd openclaw-vk-plugin
 
-openclaw plugins install .
+node scripts/prepare-install-dir.mjs
+openclaw plugins install .artifacts/install/vk
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -61,7 +62,8 @@ openclaw channels status --json --probe
 git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
 Set-Location openclaw-vk-plugin
 
-openclaw plugins install .
+node scripts/prepare-install-dir.mjs
+openclaw plugins install .artifacts/install/vk
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -114,7 +116,15 @@ openclaw pairing approve vk <CODE>
 Из локального checkout:
 
 ```bash
-openclaw plugins install .
+node scripts/prepare-install-dir.mjs
+openclaw plugins install .artifacts/install/vk
+openclaw plugins enable vk
+```
+
+Если нужен именно dev-link вместо копируемой установки:
+
+```bash
+openclaw plugins install . --link
 openclaw plugins enable vk
 ```
 
@@ -179,7 +189,8 @@ openclaw pairing approve vk <CODE>
 контейнер и выполните те же команды внутри контейнера:
 
 ```bash
-openclaw plugins install /work/openclaw-vk-plugin
+node /work/openclaw-vk-plugin/scripts/prepare-install-dir.mjs
+openclaw plugins install /work/openclaw-vk-plugin/.artifacts/install/vk
 openclaw plugins enable vk
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 123456789

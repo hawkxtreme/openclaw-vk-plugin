@@ -42,7 +42,8 @@ any npm publish.
 git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
 cd openclaw-vk-plugin
 
-openclaw plugins install .
+node scripts/prepare-install-dir.mjs
+openclaw plugins install .artifacts/install/vk
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -61,7 +62,8 @@ openclaw channels status --json --probe
 git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
 Set-Location openclaw-vk-plugin
 
-openclaw plugins install .
+node scripts/prepare-install-dir.mjs
+openclaw plugins install .artifacts/install/vk
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -111,10 +113,19 @@ VK references:
 
 ### 2. Install the plugin
 
-From this local checkout:
+From this local checkout, prefer the prepared install directory so OpenClaw
+does not copy your full development tree:
 
 ```bash
-openclaw plugins install .
+node scripts/prepare-install-dir.mjs
+openclaw plugins install .artifacts/install/vk
+openclaw plugins enable vk
+```
+
+If you want a development link instead of a copied install:
+
+```bash
+openclaw plugins install . --link
 openclaw plugins enable vk
 ```
 
@@ -176,11 +187,12 @@ openclaw pairing approve vk <CODE>
 
 ## Docker note
 
-If OpenClaw already runs in Docker, mount this repo into the container and run
-the same commands inside the container:
+If OpenClaw already runs in Docker, mount this repo into the container, prepare
+the trimmed install directory, and run the same commands inside the container:
 
 ```bash
-openclaw plugins install /work/openclaw-vk-plugin
+node /work/openclaw-vk-plugin/scripts/prepare-install-dir.mjs
+openclaw plugins install /work/openclaw-vk-plugin/.artifacts/install/vk
 openclaw plugins enable vk
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 123456789
