@@ -1,4 +1,4 @@
-import type { VkInboundMessage } from "../types/longpoll.js";
+import type { VkInboundAttachment, VkInboundMessage } from "../types/longpoll.js";
 import { parseVkFormatData } from "../types/format.js";
 
 const VK_GROUP_CHAT_PEER_ID_MIN = 2_000_000_000;
@@ -52,6 +52,202 @@ function parsePayload(value: unknown): unknown {
   } catch {
     return raw;
   }
+}
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  ".gif": "image/gif",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".mp3": "audio/mpeg",
+  ".oga": "audio/ogg",
+  ".ogg": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".wav": "audio/wav",
+  ".webp": "image/webp",
+};
+
+function inferMimeFromSuffix(value: string): string | undefined {
+  const lower = value.trim().toLowerCase();
+  for (const [suffix, mime] of Object.entries(MIME_BY_EXTENSION)) {
+    if (lower.endsWith(suffix)) {
+      return mime;
+    }
+  }
+  return undefined;
+}
+
+function inferMimeType(params: {
+  url?: string;
+  ext?: string;
+  fallback?: string;
+}): string | undefined {
+  const ext = params.ext?.trim().replace(/^\./u, "");
+  if (ext) {
+    const fromExt = inferMimeFromSuffix(`file.${ext}`);
+    if (fromExt) {
+      return fromExt;
+    }
+  }
+
+  const url = params.url?.trim();
+  if (url) {
+    try {
+      const fromUrl = inferMimeFromSuffix(new URL(url).pathname);
+      if (fromUrl) {
+        return fromUrl;
+      }
+    } catch {
+      const fromUrl = inferMimeFromSuffix(url);
+      if (fromUrl) {
+        return fromUrl;
+      }
+    }
+  }
+
+  return params.fallback;
+}
+
+function resolveLargestPhotoUrl(photo: Record<string, unknown>): string | undefined {
+  const original = asRecord(photo.orig_photo);
+  const originalUrl = toOptionalString(original?.url);
+  if (originalUrl) {
+    return originalUrl;
+  }
+
+  const sizes = Array.isArray(photo.sizes) ? photo.sizes : [];
+  let bestUrl: string | undefined;
+  let bestScore = -1;
+
+  for (const size of sizes) {
+    const record = asRecord(size);
+    if (!record) {
+      continue;
+    }
+    const url = toOptionalString(record.url);
+    if (!url) {
+      continue;
+    }
+    const width = toFiniteInteger(record.width) ?? 0;
+    const height = toFiniteInteger(record.height) ?? 0;
+    const score = width * height;
+    if (score >= bestScore) {
+      bestScore = score;
+      bestUrl = url;
+    }
+  }
+
+  return bestUrl;
+}
+
+export function normalizeVkAttachments(value: unknown): VkInboundAttachment[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const attachments: VkInboundAttachment[] = [];
+
+  for (const entry of value) {
+    const record = asRecord(entry);
+    if (!record) {
+      continue;
+    }
+
+    const type = toOptionalString(record.type);
+    if (type === "photo") {
+      const photo = asRecord(record.photo);
+      const url = photo ? resolveLargestPhotoUrl(photo) : undefined;
+      if (!url) {
+        continue;
+      }
+      attachments.push({
+        kind: "image",
+        url,
+        contentType: inferMimeType({
+          url,
+          fallback: "image/jpeg",
+        }),
+      });
+      continue;
+    }
+
+    if (type === "audio_message") {
+      const audio = asRecord(record.audio_message) ?? asRecord(record.doc);
+      if (!audio) {
+        continue;
+      }
+      const oggUrl = toOptionalString(audio.link_ogg);
+      const mp3Url = toOptionalString(audio.link_mp3);
+      const url = oggUrl ?? mp3Url ?? toOptionalString(audio.url);
+      if (!url) {
+        continue;
+      }
+      const title = toOptionalString(audio.title);
+      attachments.push({
+        kind: "audio_message",
+        url,
+        contentType:
+          oggUrl
+            ? "audio/ogg"
+            : mp3Url
+              ? "audio/mpeg"
+              : inferMimeType({
+                  url,
+                  ext: toOptionalString(audio.ext),
+                  fallback: "audio/ogg",
+                }),
+        ...(title ? { title } : {}),
+      });
+      continue;
+    }
+
+    if (type === "audio") {
+      const audio = asRecord(record.audio);
+      const url = toOptionalString(audio?.url);
+      if (!audio || !url) {
+        continue;
+      }
+      const title = toOptionalString(audio.title);
+      const artist = toOptionalString(audio.artist);
+      const displayTitle =
+        artist && title ? `${artist} - ${title}` : (title ?? artist);
+      attachments.push({
+        kind: "audio_message",
+        url,
+        contentType: inferMimeType({
+          url,
+          ext: toOptionalString(audio.ext),
+          fallback: "audio/mpeg",
+        }),
+        ...(displayTitle ? { title: displayTitle } : {}),
+      });
+      continue;
+    }
+
+    if (type === "doc") {
+      const doc = asRecord(record.doc);
+      const url = toOptionalString(doc?.url);
+      if (!doc || !url) {
+        continue;
+      }
+      const title = toOptionalString(doc.title);
+      const kind = toFiniteInteger(doc.type) === 5 ? "audio_message" : "document";
+      attachments.push({
+        kind,
+        url,
+        contentType: inferMimeType({
+          url,
+          ext: toOptionalString(doc.ext),
+          fallback: kind === "audio_message" ? "audio/ogg" : undefined,
+        }),
+        ...(title ? { title } : {}),
+      });
+    }
+  }
+
+  return attachments.length > 0 ? attachments : undefined;
 }
 
 function resolveMessageRecord(
@@ -151,6 +347,7 @@ export function normalizeVkMessageNewUpdate(params: {
     peerId,
     senderId,
     text,
+    attachments: normalizeVkAttachments(message.attachments),
     formatData,
     messagePayload,
     createdAt,

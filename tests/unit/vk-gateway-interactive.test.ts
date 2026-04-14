@@ -232,7 +232,7 @@ describe("vk gateway interactive callbacks", () => {
     expect(interactiveEventAnswerMock).toHaveBeenCalledWith({
       eventData: {
         type: "show_snackbar",
-        text: "Running /models...",
+        text: "Opening models...",
       },
     });
 
@@ -321,7 +321,7 @@ describe("vk gateway interactive callbacks", () => {
     expect(interactiveEventAnswerMock).toHaveBeenCalledWith({
       eventData: {
         type: "show_snackbar",
-        text: "Running /commands...",
+        text: "Opening menu...",
       },
     });
     expect(settled).toBe(true);

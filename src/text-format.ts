@@ -5,6 +5,7 @@ import {
   type MarkdownStyle,
   type MarkdownStyleSpan,
 } from "openclaw/plugin-sdk/text-runtime";
+import { normalizeVkCommandShortcut } from "./command-ui.js";
 import { resolveVkCommandFromPayload } from "./keyboard.js";
 import type {
   VkFormatData,
@@ -623,8 +624,25 @@ function flattenMarkdownTables(text: string): string {
 }
 
 export function normalizeVkInboundBody(body: string): string {
-  const trimmed = body.trim();
+  const trimmed = stripLeadingVkBotMentions(body.trim());
   return trimmed === "/" ? "/commands" : trimmed;
+}
+
+function stripLeadingVkBotMentions(body: string): string {
+  let normalized = body;
+
+  while (normalized.length > 0) {
+    const next = normalized.replace(
+      /^(?:\[(?:club|public)\d+\|[^\]]+\]|@(?:club|public)\d+)\s*[,!:.?;—-]?\s*/iu,
+      "",
+    );
+    if (next === normalized) {
+      break;
+    }
+    normalized = next.trimStart();
+  }
+
+  return normalized;
 }
 
 export function resolveVkInboundBody(source: VkInboundBodySource): string {
@@ -633,7 +651,7 @@ export function resolveVkInboundBody(source: VkInboundBodySource): string {
 }
 
 export function isVkSlashCommandBody(body: string): boolean {
-  return normalizeVkInboundBody(body).startsWith("/");
+  return normalizeVkCommandShortcut(normalizeVkInboundBody(body)).startsWith("/");
 }
 
 export function isVkSlashCommandMessage(source: VkInboundBodySource): boolean {

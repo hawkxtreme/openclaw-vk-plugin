@@ -33,8 +33,9 @@ on a separate branch and is not part of the recommended setup.
 
 ## Fastest setup
 
-This is the shortest path if you want to test the plugin from this repo before
-any npm publish.
+This is the shortest supported path today. It uses a prepared local bundle as a
+`plugins.load.paths` config plugin so it wins over the bundled OpenClaw `vk`
+plugin without any OpenClaw core changes.
 
 ### Bash
 
@@ -43,7 +44,7 @@ git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
 cd openclaw-vk-plugin
 
 node scripts/prepare-install-dir.mjs
-openclaw plugins install .artifacts/install/vk
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -63,7 +64,7 @@ git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
 Set-Location openclaw-vk-plugin
 
 node scripts/prepare-install-dir.mjs
-openclaw plugins install .artifacts/install/vk
+openclaw config set plugins.load.paths.0 ((Resolve-Path .artifacts/install/vk).Path)
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -111,30 +112,27 @@ VK references:
 - `https://dev.vk.com/ru/method/groups.setLongPollSettings`
 - `https://dev.vk.com/ru/method/messages.send`
 
-### 2. Install the plugin
+### 2. Prepare the standalone load path
 
-From this local checkout, prefer the prepared install directory so OpenClaw
-does not copy your full development tree:
+From this local checkout, prepare the trimmed install directory and point
+`plugins.load.paths` at it:
 
 ```bash
 node scripts/prepare-install-dir.mjs
-openclaw plugins install .artifacts/install/vk
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
 ```
 
-If you want a development link instead of a copied install:
+If you want a development link instead of the trimmed bundle:
 
 ```bash
-openclaw plugins install . --link
+openclaw config set plugins.load.paths.0 "$(pwd)"
 openclaw plugins enable vk
 ```
 
-After publishing to npm:
-
-```bash
-openclaw plugins install @openclaw/vk
-openclaw plugins enable vk
-```
+This repo keeps package metadata separate from the host-bundled `vk` plugin,
+but the recommended runtime path stays `plugins.load.paths` until OpenClaw
+ships a host-side duplicate-plugin precedence fix.
 
 ### 3. Configure OpenClaw
 
@@ -192,7 +190,7 @@ the trimmed install directory, and run the same commands inside the container:
 
 ```bash
 node /work/openclaw-vk-plugin/scripts/prepare-install-dir.mjs
-openclaw plugins install /work/openclaw-vk-plugin/.artifacts/install/vk
+openclaw config set plugins.load.paths.0 /work/openclaw-vk-plugin/.artifacts/install/vk
 openclaw plugins enable vk
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 123456789

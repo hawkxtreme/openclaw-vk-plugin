@@ -56,6 +56,8 @@ const VK_COMMAND_SUGGESTIONS: readonly VkCommandSuggestion[] = [
   { label: "Whoami", command: "/whoami" },
 ];
 
+const VK_START_MENU_ALIASES = new Set<string>(["start", "старт", "начать"]);
+
 const VK_COMMAND_ALIASES = new Map<string, string>([
   ["menu", "/commands"],
   ["commands", "/commands"],
@@ -216,6 +218,7 @@ export function buildVkCommandsListChannelData(params: {
   return toChannelData(appendCloseRow(rows), {
     inline: true,
     oneTime: false,
+    longPollInlineCallback: true,
   });
 }
 
@@ -488,13 +491,30 @@ export function normalizeVkCommandShortcut(body: string): string {
   if (!normalized) {
     return normalized;
   }
-  return VK_COMMAND_ALIASES.get(normalized.toLowerCase()) ?? normalized;
+  const lowered = normalized.toLowerCase();
+  if (VK_START_MENU_ALIASES.has(lowered)) {
+    return "/commands";
+  }
+  const directAlias = VK_COMMAND_ALIASES.get(lowered);
+  if (directAlias) {
+    return directAlias;
+  }
+  if (lowered.startsWith("/") && !lowered.includes(" ")) {
+    if (VK_START_MENU_ALIASES.has(lowered.slice(1))) {
+      return "/commands";
+    }
+    const slashAlias = VK_COMMAND_ALIASES.get(lowered.slice(1));
+    if (slashAlias) {
+      return slashAlias;
+    }
+  }
+  return normalized;
 }
 
 export function resolveVkSlashCommandSuggestionReply(
   body: string,
 ): { text: string; channelData: ReplyPayload["channelData"] } | null {
-  const normalized = body.trim().toLowerCase();
+  const normalized = normalizeVkCommandShortcut(body).trim().toLowerCase();
   if (!normalized.startsWith("/") || normalized.includes(" ")) {
     return null;
   }
@@ -529,6 +549,7 @@ export function resolveVkSlashCommandSuggestionReply(
     {
       inline: true,
       oneTime: false,
+      ...(normalized !== "/" ? { longPollInlineCallback: true } : {}),
     },
   );
   if (!channelData) {

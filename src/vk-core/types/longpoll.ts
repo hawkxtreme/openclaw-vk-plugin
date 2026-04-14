@@ -15,6 +15,13 @@ export type VkLongPollResponse = {
   failed?: number;
 };
 
+export type VkInboundAttachment = {
+  kind: "image" | "document" | "audio_message";
+  url: string;
+  contentType?: string;
+  title?: string;
+};
+
 export type VkInboundMessage = {
   accountId: string;
   groupId: number;
@@ -27,6 +34,7 @@ export type VkInboundMessage = {
   peerId: number;
   senderId: number;
   text: string;
+  attachments?: VkInboundAttachment[];
   formatData?: VkFormatData;
   messagePayload?: unknown;
   editConversationMessageId?: string;

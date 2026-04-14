@@ -1,5 +1,5 @@
 {
-  "name": "@openclaw/vk",
+  "name": "openclaw-vk-plugin",
   "version": "2026.4.8",
   "private": false,
   "description": "Standalone VK channel plugin for OpenClaw with long-poll-first onboarding, group chats, buttons, and media",
@@ -75,7 +75,7 @@
       "markdownCapable": false
     },
     "install": {
-      "npmSpec": "@openclaw/vk",
+      "npmSpec": "openclaw-vk-plugin",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.6"
     },

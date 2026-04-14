@@ -53,6 +53,55 @@ function createDirectMessage(params?: {
 }
 
 describe("vk access controller", () => {
+  it("normalizes photo attachments from message_new updates", () => {
+    const message = normalizeVkMessageNewUpdate({
+      accountId: "default",
+      groupId: 77,
+      update: {
+        type: "message_new",
+        group_id: 77,
+        event_id: "evt-photo-1",
+        object: {
+          message: {
+            id: 777,
+            peer_id: 42,
+            from_id: 42,
+            text: "Что на фото?",
+            date: 1_700_000_000,
+            attachments: [
+              {
+                type: "photo",
+                photo: {
+                  sizes: [
+                    {
+                      width: 160,
+                      height: 120,
+                      url: "https://example.com/photo-small.jpg",
+                    },
+                    {
+                      width: 1280,
+                      height: 960,
+                      url: "https://example.com/photo-large.jpg",
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(message).not.toBeNull();
+    expect((message as { attachments?: unknown } | null)?.attachments).toEqual([
+      {
+        kind: "image",
+        url: "https://example.com/photo-large.jpg",
+        contentType: "image/jpeg",
+      },
+    ]);
+  });
+
   it("allows open DM policy and allowlist entries", () => {
     const controller = createVkAccessController();
     const openAccount = createAccount({

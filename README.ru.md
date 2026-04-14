@@ -43,7 +43,7 @@ git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
 cd openclaw-vk-plugin
 
 node scripts/prepare-install-dir.mjs
-openclaw plugins install .artifacts/install/vk
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -63,7 +63,7 @@ git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
 Set-Location openclaw-vk-plugin
 
 node scripts/prepare-install-dir.mjs
-openclaw plugins install .artifacts/install/vk
+openclaw config set plugins.load.paths.0 ((Resolve-Path .artifacts/install/vk).Path)
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -117,21 +117,21 @@ openclaw pairing approve vk <CODE>
 
 ```bash
 node scripts/prepare-install-dir.mjs
-openclaw plugins install .artifacts/install/vk
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
 ```
 
 Если нужен именно dev-link вместо копируемой установки:
 
 ```bash
-openclaw plugins install . --link
+openclaw config set plugins.load.paths.0 "$(pwd)"
 openclaw plugins enable vk
 ```
 
 После публикации в npm:
 
 ```bash
-openclaw plugins install @openclaw/vk
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
 ```
 
@@ -190,7 +190,7 @@ openclaw pairing approve vk <CODE>
 
 ```bash
 node /work/openclaw-vk-plugin/scripts/prepare-install-dir.mjs
-openclaw plugins install /work/openclaw-vk-plugin/.artifacts/install/vk
+openclaw config set plugins.load.paths.0 /work/openclaw-vk-plugin/.artifacts/install/vk
 openclaw plugins enable vk
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 123456789

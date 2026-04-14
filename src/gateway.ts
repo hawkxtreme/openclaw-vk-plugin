@@ -12,6 +12,7 @@ import {
   resolveVkAccount,
   type ResolvedVkAccount,
 } from "./accounts.js";
+import { normalizeVkCommandShortcut, VK_CLOSE_MENU_COMMAND } from "./command-ui.js";
 import { handleVkInboundMessage } from "./inbound.js";
 import { resolveLatestVkInteractiveMenuId, retireVkInteractiveMenu } from "./interactive-menu.js";
 import {
@@ -102,7 +103,10 @@ function buildSyntheticMessageFromInteractiveEvent(event: VkMessageEvent) {
   const payloadCommand =
     resolveVkCommandFromPayload(event.payload) ??
     (typeof event.payload === "string" ? event.payload.trim() : undefined);
-  if (!payloadCommand) {
+  const normalizedPayloadCommand = payloadCommand
+    ? normalizeVkCommandShortcut(payloadCommand)
+    : undefined;
+  if (!normalizedPayloadCommand) {
     return null;
   }
 
@@ -120,7 +124,7 @@ function buildSyntheticMessageFromInteractiveEvent(event: VkMessageEvent) {
     conversationMessageId: event.conversationMessageId,
     peerId: event.peerId,
     senderId: event.senderId,
-    text: payloadCommand,
+    text: normalizedPayloadCommand,
     messagePayload: event.payload,
     editConversationMessageId: event.conversationMessageId,
     createdAt: event.createdAt ?? Date.now(),
@@ -130,10 +134,22 @@ function buildSyntheticMessageFromInteractiveEvent(event: VkMessageEvent) {
 }
 
 function buildInteractiveEventAnswer(commandText: string): VkInteractiveEventAnswer {
+  const opensMenu = commandText === "/commands" || commandText.startsWith("/commands ");
+  const opensModels = commandText === "/models" || commandText.startsWith("/models ");
+  const opensTools = commandText === "/tools" || commandText.startsWith("/tools ");
   return {
     eventData: {
       type: "show_snackbar",
-      text: `Running ${commandText}...`,
+      text:
+        opensMenu
+          ? "Opening menu..."
+          : opensModels
+            ? "Opening models..."
+            : opensTools
+              ? "Opening tools..."
+              : commandText === VK_CLOSE_MENU_COMMAND
+                ? "Closing menu..."
+                : `Running ${commandText}...`,
     },
   };
 }

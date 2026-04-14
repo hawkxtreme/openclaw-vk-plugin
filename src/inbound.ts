@@ -18,9 +18,10 @@ import { resolveVkInboundEditConversationMessageId } from "./reply-to.js";
 import { getVkRuntime } from "./runtime.js";
 import { resolveVkInboundBody } from "./text-format.js";
 import type { OpenClawConfig } from "./types.js";
+import { getVkMessageAttachmentsByConversationMessageId } from "./vk-core/core/api.js";
 import { sendVkText, sendVkTyping } from "./vk-core/outbound/send.js";
 import type { VkAccessController } from "./vk-core/types/access.js";
-import type { VkInboundMessage } from "./vk-core/types/longpoll.js";
+import type { VkInboundAttachment, VkInboundMessage } from "./vk-core/types/longpoll.js";
 
 const CHANNEL_ID = "vk" as const;
 
@@ -40,6 +41,8 @@ type VkInboundStatusSink = (
 ) => void;
 
 type VkTypingCallbacks = ReturnType<typeof createTypingCallbacks>;
+
+const VK_ATTACHMENT_HYDRATION_RETRY_DELAYS_MS = [0, 250, 750] as const;
 
 const dispatchInboundReplyWithBaseCompat = dispatchInboundReplyWithBase as unknown as (params: Parameters<
   typeof dispatchInboundReplyWithBase
@@ -129,10 +132,10 @@ function buildVkCloseMenuPayload(account: ResolvedVkAccount): {
 } {
   if (account.config.transport === "long-poll") {
     return {
-      text: "Menu collapsed. Open the keyboard to continue.",
+      text: "Menu collapsed. Tap Menu to reopen.",
       channelData: {
         vk: {
-          menuBehavior: "root",
+          menuBehavior: "collapse",
         },
       },
     };
@@ -192,6 +195,246 @@ function buildVkConversationLabel(message: VkInboundMessage): string {
   return message.isGroupChat
     ? `VK chat ${String(message.peerId)}`
     : `VK user ${String(message.senderId)}`;
+}
+
+function summarizeVkRawUpdateForDebug(message: VkInboundMessage): Record<string, unknown> {
+  const envelope =
+    message.rawUpdate && typeof message.rawUpdate === "object" && !Array.isArray(message.rawUpdate)
+      ? (message.rawUpdate as Record<string, unknown>)
+      : null;
+  const objectRecord =
+    envelope?.object && typeof envelope.object === "object" && !Array.isArray(envelope.object)
+      ? (envelope.object as Record<string, unknown>)
+      : null;
+  const nestedMessage =
+    objectRecord?.message &&
+    typeof objectRecord.message === "object" &&
+    !Array.isArray(objectRecord.message)
+      ? (objectRecord.message as Record<string, unknown>)
+      : null;
+  const candidateAttachments = [nestedMessage?.attachments, objectRecord?.attachments].find(
+    Array.isArray,
+  );
+
+  return {
+    eventType: envelope?.type,
+    normalizedTextLength: message.text.length,
+    normalizedAttachmentCount: message.attachments?.length ?? 0,
+    objectKeys: objectRecord ? Object.keys(objectRecord).slice(0, 20) : [],
+    messageKeys: nestedMessage ? Object.keys(nestedMessage).slice(0, 30) : [],
+    rawAttachmentCount: Array.isArray(candidateAttachments) ? candidateAttachments.length : 0,
+    rawAttachmentKinds: Array.isArray(candidateAttachments)
+      ? candidateAttachments
+          .map((entry) =>
+            entry && typeof entry === "object" && !Array.isArray(entry)
+              ? String((entry as Record<string, unknown>).type ?? "unknown")
+              : typeof entry,
+          )
+          .slice(0, 10)
+      : [],
+  };
+}
+
+function listVkInboundAttachmentKinds(
+  attachments: VkInboundAttachment[] | undefined,
+): VkInboundAttachment["kind"][] {
+  const uniqueKinds = new Set<VkInboundAttachment["kind"]>();
+  for (const attachment of attachments ?? []) {
+    uniqueKinds.add(attachment.kind);
+  }
+  return [...uniqueKinds];
+}
+
+function listVkInboundAttachmentTitles(
+  attachments: VkInboundAttachment[] | undefined,
+): string[] {
+  const uniqueTitles = new Set<string>();
+  for (const attachment of attachments ?? []) {
+    const title = attachment.title?.trim();
+    if (title) {
+      uniqueTitles.add(title);
+    }
+  }
+  return [...uniqueTitles];
+}
+
+function renderVkInboundAttachmentKinds(
+  attachments: VkInboundAttachment[] | undefined,
+): string {
+  const kinds = listVkInboundAttachmentKinds(attachments);
+  return kinds.length > 0 ? kinds.join(",") : "none";
+}
+
+function buildVkAttachmentOnlyPrompt(
+  attachments: VkInboundAttachment[] | undefined,
+): string | undefined {
+  const kinds = listVkInboundAttachmentKinds(attachments);
+  if (kinds.length === 0) {
+    return undefined;
+  }
+
+  const titles = listVkInboundAttachmentTitles(attachments);
+  const titleLine =
+    titles.length > 0 ? `Attachment titles: ${titles.join("; ")}.` : undefined;
+
+  if (kinds.length === 1 && kinds[0] === "image") {
+    return [
+      "[User sent an image without caption]",
+      titleLine,
+      "If you can inspect the image, describe it.",
+      "If you cannot inspect it with the current model, explicitly say that an image was received but cannot be analyzed right now.",
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+  }
+
+  if (kinds.length === 1 && kinds[0] === "audio_message") {
+    return [
+      "[User sent a voice or audio attachment without caption]",
+      titleLine,
+      "If you can inspect the audio, transcribe or describe it.",
+      "If you cannot inspect it with the current model, explicitly say that a voice or audio attachment was received but cannot be analyzed right now.",
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+  }
+
+  if (kinds.length === 1 && kinds[0] === "document") {
+    return [
+      "[User sent a document without caption]",
+      titleLine,
+      "If you can inspect the document, summarize or describe it.",
+      "If you cannot inspect it with the current model, explicitly say that a document was received but cannot be analyzed right now.",
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+  }
+
+  return [
+    "[User sent media attachments without caption]",
+    titleLine,
+    "If you can inspect the attachments, describe each one.",
+    "If you cannot inspect them with the current model, explicitly say that media attachments were received but cannot be analyzed right now.",
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+async function delayVkAttachmentHydration(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function resolveVkInboundMediaContext(message: VkInboundMessage): Record<string, unknown> | undefined {
+  const attachments = message.attachments?.filter(
+    (attachment) => typeof attachment.url === "string" && attachment.url.trim().length > 0,
+  );
+  if (!attachments?.length) {
+    return undefined;
+  }
+
+  const mediaUrls = attachments.map((attachment) => attachment.url.trim());
+  const mediaTypes = attachments
+    .map((attachment) => attachment.contentType?.trim())
+    .filter((value): value is string => Boolean(value));
+  const mediaKinds = listVkInboundAttachmentKinds(attachments);
+  const mediaTitles = listVkInboundAttachmentTitles(attachments);
+
+  const first = attachments[0];
+  return {
+    MediaUrl: first.url,
+    MediaUrls: mediaUrls,
+    ...(first.contentType ? { MediaType: first.contentType } : {}),
+    ...(mediaTypes.length > 0 ? { MediaTypes: mediaTypes } : {}),
+    ...(mediaKinds.length > 0 ? { MediaKind: mediaKinds[0], MediaKinds: mediaKinds } : {}),
+    ...(mediaTitles.length > 0
+      ? { MediaTitle: mediaTitles[0], MediaTitles: mediaTitles }
+      : {}),
+  };
+}
+
+async function hydrateVkInboundMessageAttachments(params: {
+  account: ResolvedVkAccount;
+  message: VkInboundMessage;
+  log?: VkInboundLog;
+}): Promise<VkInboundMessage> {
+  if ((params.message.attachments?.length ?? 0) > 0) {
+    return params.message;
+  }
+
+  if (
+    params.message.transport !== "long-poll" ||
+    params.message.isGroupChat ||
+    params.message.text.trim().length > 0 ||
+    !params.message.conversationMessageId
+  ) {
+    return params.message;
+  }
+
+  try {
+    for (const [attemptIndex, delayMs] of VK_ATTACHMENT_HYDRATION_RETRY_DELAYS_MS.entries()) {
+      await delayVkAttachmentHydration(delayMs);
+
+      const attachments = await getVkMessageAttachmentsByConversationMessageId({
+        token: params.account.token,
+        peerId: params.message.peerId,
+        conversationMessageId: params.message.conversationMessageId,
+        apiVersion: params.account.config.apiVersion,
+      });
+      if (!attachments?.length) {
+        if (attemptIndex < VK_ATTACHMENT_HYDRATION_RETRY_DELAYS_MS.length - 1) {
+          params.log?.debug?.(
+            `[${params.account.accountId}] VK inbound attachment hydration pending for ${params.message.messageId} via conversation message ${params.message.conversationMessageId} (attempt ${String(attemptIndex + 1)}/${String(VK_ATTACHMENT_HYDRATION_RETRY_DELAYS_MS.length)})`,
+          );
+          continue;
+        }
+        return params.message;
+      }
+      params.log?.debug?.(
+        `[${params.account.accountId}] hydrated VK inbound attachments for ${params.message.messageId} via conversation message ${params.message.conversationMessageId} on attempt ${String(attemptIndex + 1)}`,
+      );
+      return {
+        ...params.message,
+        attachments,
+      };
+    }
+
+    return params.message;
+  } catch (error) {
+    params.log?.warn?.(
+      `[${params.account.accountId}] failed hydrating VK inbound attachments for ${params.message.messageId}: ${String(error)}`,
+    );
+    return params.message;
+  }
+}
+
+function resolveVkEffectiveInboundBody(params: {
+  message: VkInboundMessage;
+  inboundMediaContext?: Record<string, unknown>;
+}): string | undefined {
+  const textBody = resolveVkInboundBody(params.message);
+  if (textBody) {
+    return textBody;
+  }
+  if (!params.inboundMediaContext) {
+    return undefined;
+  }
+  // Keep attachment-only turns actionable for models that would otherwise see
+  // only a bare placeholder and decide not to answer. Make the prompt specific
+  // enough that image/audio/document fallbacks stay accurate.
+  return buildVkAttachmentOnlyPrompt(params.message.attachments);
+}
+
+function isVkAttachmentOnlyMessage(params: {
+  message: VkInboundMessage;
+  inboundMediaContext?: Record<string, unknown>;
+}): boolean {
+  return !resolveVkInboundBody(params.message) && Boolean(params.inboundMediaContext);
 }
 
 function resolveVkGroupCommandAuthorization(params: {
@@ -304,24 +547,46 @@ export async function handleVkInboundMessage(params: {
   };
 
   traceInbound("start");
-  const inboundBody = resolveVkInboundBody(message);
+  const effectiveMessage = await hydrateVkInboundMessageAttachments({
+    account,
+    message,
+    log,
+  });
+  const inboundMediaContext = resolveVkInboundMediaContext(effectiveMessage);
+  const isAttachmentOnlyMessage = isVkAttachmentOnlyMessage({
+    message: effectiveMessage,
+    inboundMediaContext,
+  });
+  const inboundBody = resolveVkEffectiveInboundBody({
+    message: effectiveMessage,
+    inboundMediaContext,
+  });
   if (!inboundBody) {
     log?.debug?.(
-      `[${account.accountId}] skipping VK message ${message.messageId} without text content`,
+      `[${account.accountId}] skipping VK message ${effectiveMessage.messageId} without text content`,
     );
+    if (!effectiveMessage.isGroupChat) {
+      log?.warn?.(
+        `[${account.accountId}] VK empty DM skipped ${effectiveMessage.messageId}: ${JSON.stringify(
+          summarizeVkRawUpdateForDebug(effectiveMessage),
+        )}`,
+      );
+    }
     return;
   }
   const rawBody = normalizeVkCommandShortcut(inboundBody);
   const payloadCommand = resolveVkCommandFromPayload(message.messagePayload);
+  const suggestionBody = payloadCommand ?? normalizeVkCommandShortcut(effectiveMessage.text);
   emitVkFlowDebug("inbound", {
     accountId: account.accountId,
     transport: account.config.transport,
-    messageId: message.messageId,
-    peerId: message.peerId,
-    senderId: message.senderId,
-    isGroupChat: message.isGroupChat,
+    messageId: effectiveMessage.messageId,
+    peerId: effectiveMessage.peerId,
+    senderId: effectiveMessage.senderId,
+    isGroupChat: effectiveMessage.isGroupChat,
     rawBody,
     payloadCommand,
+    attachmentKinds: listVkInboundAttachmentKinds(effectiveMessage.attachments),
   });
 
   traceInbound("body-ready");
@@ -330,7 +595,7 @@ export async function handleVkInboundMessage(params: {
   const rememberedInteractiveMessageId = rawBody.trim().startsWith("/")
     ? resolveRememberedVkInteractiveMessageId({
         accountId: account.accountId,
-        peerId: String(message.peerId),
+        peerId: String(effectiveMessage.peerId),
       })
     : undefined;
   const commandReplyMenuBehavior = resolveVkCommandReplyMenuBehavior({
@@ -340,35 +605,39 @@ export async function handleVkInboundMessage(params: {
   // Long-poll reply-keyboard commands arrive as fresh user messages. Only
   // synthetic callback events should edit an existing interactive menu.
   const editConversationMessageId =
-    resolveVkInboundEditConversationMessageId(message) ??
+    resolveVkInboundEditConversationMessageId(effectiveMessage) ??
     (account.config.transport === "callback-api" ? rememberedInteractiveMessageId : undefined);
   statusSink?.({
-    lastInboundAt: message.createdAt,
-    lastEventAt: message.createdAt,
-    lastMessageAt: message.createdAt,
+    lastInboundAt: effectiveMessage.createdAt,
+    lastEventAt: effectiveMessage.createdAt,
+    lastMessageAt: effectiveMessage.createdAt,
     lastError: null,
   });
   const typingCallbacks = createVkTypingCallbacks({
     account,
-    message,
+    message: effectiveMessage,
     log,
   });
   traceInbound("runtime-ready");
 
-  if (message.isGroupChat) {
-    const groupAccess = accessController?.evaluateMessage({ account, message });
-    if (groupAccess && groupAccess.decision !== "allow") {
+  if (effectiveMessage.isGroupChat) {
+    const groupAccess = accessController?.evaluateMessage({ account, message: effectiveMessage });
+    const allowNormalizedGroupShortcut =
+      groupAccess?.decision === "deny" &&
+      groupAccess.reason === "group-mention-required" &&
+      rawBody.trim().startsWith("/");
+    if (groupAccess && groupAccess.decision !== "allow" && !allowNormalizedGroupShortcut) {
       log?.debug?.(
-        `[${account.accountId}] dropping VK group message ${message.messageId} (${groupAccess.reason})`,
+        `[${account.accountId}] dropping VK group message ${effectiveMessage.messageId} (${groupAccess.reason})`,
       );
       return;
     }
 
-    const groupConfig = resolveVkGroupConfig(account, message.peerId);
+    const groupConfig = resolveVkGroupConfig(account, effectiveMessage.peerId);
     const authorization = resolveVkGroupCommandAuthorization({
       cfg,
       account,
-      senderId: String(message.senderId),
+      senderId: String(effectiveMessage.senderId),
       rawBody,
       groupAllowFrom: groupConfig?.allowFrom ?? account.config.groupAllowFrom ?? [],
       runtime: core,
@@ -385,7 +654,7 @@ export async function handleVkInboundMessage(params: {
       await deliverVkReply({
         cfg,
         accountId: account.accountId,
-        to: String(message.peerId),
+        to: String(effectiveMessage.peerId),
         replyToId,
         editConversationMessageId,
         payload: buildVkCloseMenuPayload(account),
@@ -394,12 +663,12 @@ export async function handleVkInboundMessage(params: {
       return;
     }
 
-    const groupSuggestionReply = resolveVkSlashCommandSuggestionReply(rawBody);
+    const groupSuggestionReply = resolveVkSlashCommandSuggestionReply(suggestionBody);
     if (groupSuggestionReply) {
       await deliverVkReply({
         cfg,
         accountId: account.accountId,
-        to: String(message.peerId),
+        to: String(effectiveMessage.peerId),
         replyToId,
         editConversationMessageId,
         payload: commandReplyMenuBehavior
@@ -416,7 +685,7 @@ export async function handleVkInboundMessage(params: {
       accountId: account.accountId,
       peer: {
         kind: "group",
-        id: String(message.peerId),
+        id: String(effectiveMessage.peerId),
       },
     });
     const storePath = core.channel.session.resolveStorePath(cfg.session?.store, {
@@ -426,11 +695,11 @@ export async function handleVkInboundMessage(params: {
       storePath,
       sessionKey: route.sessionKey,
     });
-    const conversationLabel = buildVkConversationLabel(message);
+    const conversationLabel = buildVkConversationLabel(effectiveMessage);
     const body = core.channel.reply.formatAgentEnvelope({
       channel: "VK",
       from: conversationLabel,
-      timestamp: message.createdAt,
+      timestamp: effectiveMessage.createdAt,
       previousTimestamp,
       envelope: core.channel.reply.resolveEnvelopeFormatOptions(cfg),
       body: rawBody,
@@ -446,22 +715,23 @@ export async function handleVkInboundMessage(params: {
       AccountId: route.accountId ?? account.accountId,
       ChatType: "group",
       ConversationLabel: conversationLabel,
-      SenderId: String(message.senderId),
+      SenderId: String(effectiveMessage.senderId),
       GroupSubject: conversationLabel,
-      GroupChannel: String(message.peerId),
+      GroupChannel: String(effectiveMessage.peerId),
       WasMentioned: groupAccess?.wasMentioned,
       Provider: CHANNEL_ID,
       Surface: CHANNEL_ID,
-      MessageSid: message.messageId,
-      MessageSidFull: message.messageId,
-      ReplyToId: replyToId,
-      Timestamp: message.createdAt,
-      OriginatingChannel: CHANNEL_ID,
-      OriginatingTo: `vk:${String(message.peerId)}`,
-      CommandAuthorized: authorization,
-    });
+      MessageSid: effectiveMessage.messageId,
+      MessageSidFull: effectiveMessage.messageId,
+        ReplyToId: replyToId,
+        Timestamp: effectiveMessage.createdAt,
+        OriginatingChannel: CHANNEL_ID,
+        OriginatingTo: `vk:${String(effectiveMessage.peerId)}`,
+        CommandAuthorized: authorization,
+        ...(inboundMediaContext ?? {}),
+      });
 
-    await dispatchInboundReplyWithBaseCompat({
+      await dispatchInboundReplyWithBaseCompat({
       cfg,
       channel: CHANNEL_ID,
       accountId: account.accountId,
@@ -473,7 +743,7 @@ export async function handleVkInboundMessage(params: {
         await deliverVkReply({
           cfg,
           accountId: account.accountId,
-          to: String(message.peerId),
+          to: String(effectiveMessage.peerId),
           replyToId,
           editConversationMessageId,
           payload: commandReplyMenuBehavior
@@ -498,11 +768,11 @@ export async function handleVkInboundMessage(params: {
 
   const consentState = accessController?.getConsentState({
     accountId: account.accountId,
-    senderId: message.senderId,
+    senderId: effectiveMessage.senderId,
   });
   if (consentState === "denied") {
     log?.debug?.(
-      `[${account.accountId}] dropping VK DM ${message.messageId} because consent is denied`,
+      `[${account.accountId}] dropping VK DM ${effectiveMessage.messageId} because consent is denied`,
     );
     return;
   }
@@ -510,8 +780,8 @@ export async function handleVkInboundMessage(params: {
   const pairing = createChannelPairingController({
     core,
     channel: CHANNEL_ID,
-    accountId: account.accountId,
-  });
+      accountId: account.accountId,
+    });
   traceInbound("before-dm-access");
   const dmAccess = await resolveInboundDirectDmAccessWithRuntime({
     cfg,
@@ -519,7 +789,7 @@ export async function handleVkInboundMessage(params: {
     accountId: account.accountId,
     dmPolicy: account.config.dmPolicy,
     allowFrom: account.config.allowFrom,
-    senderId: String(message.senderId),
+    senderId: String(effectiveMessage.senderId),
     rawBody,
     isSenderAllowed: isVkSenderAllowed,
     runtime: {
@@ -564,7 +834,7 @@ export async function handleVkInboundMessage(params: {
     await deliverVkReply({
       cfg,
       accountId: account.accountId,
-      to: String(message.peerId),
+      to: String(effectiveMessage.peerId),
       replyToId,
       editConversationMessageId,
       payload: buildVkCloseMenuPayload(account),
@@ -573,12 +843,12 @@ export async function handleVkInboundMessage(params: {
     return;
   }
 
-  const dmSuggestionReply = resolveVkSlashCommandSuggestionReply(rawBody);
+  const dmSuggestionReply = resolveVkSlashCommandSuggestionReply(suggestionBody);
   if (dmSuggestionReply) {
     await deliverVkReply({
       cfg,
       accountId: account.accountId,
-      to: String(message.peerId),
+      to: String(effectiveMessage.peerId),
       replyToId,
       editConversationMessageId,
       payload: commandReplyMenuBehavior
@@ -590,6 +860,14 @@ export async function handleVkInboundMessage(params: {
   }
 
   traceInbound("before-dm-dispatch");
+  const dmDispatchStartedAt = isAttachmentOnlyMessage ? Date.now() : 0;
+  if (isAttachmentOnlyMessage) {
+    log?.warn?.(
+      `[${account.accountId}] VK attachment-only DM dispatch start message=${effectiveMessage.messageId} peer=${effectiveMessage.peerId} kinds=${renderVkInboundAttachmentKinds(
+        effectiveMessage.attachments,
+      )}`,
+    );
+  }
   await dispatchInboundDirectDmWithRuntimeCompat({
     cfg,
     runtime: core,
@@ -598,21 +876,22 @@ export async function handleVkInboundMessage(params: {
     accountId: account.accountId,
     peer: {
       kind: "direct",
-      id: String(message.senderId),
+      id: String(effectiveMessage.senderId),
     },
-    senderId: String(message.senderId),
-    senderAddress: `vk:user:${String(message.senderId)}`,
-    recipientAddress: `vk:${String(message.peerId)}`,
-    conversationLabel: buildVkConversationLabel(message),
-    rawBody,
-    messageId: message.messageId,
-    timestamp: message.createdAt,
-    commandAuthorized: dmAccess.commandAuthorized,
-    deliver: async (payload) =>
-      await deliverVkReply({
-        cfg,
+    senderId: String(effectiveMessage.senderId),
+    senderAddress: `vk:user:${String(effectiveMessage.senderId)}`,
+    recipientAddress: `vk:${String(effectiveMessage.peerId)}`,
+      conversationLabel: buildVkConversationLabel(effectiveMessage),
+      rawBody,
+      messageId: effectiveMessage.messageId,
+      timestamp: effectiveMessage.createdAt,
+      commandAuthorized: dmAccess.commandAuthorized,
+      extraContext: inboundMediaContext,
+      deliver: async (payload) =>
+        await deliverVkReply({
+          cfg,
         accountId: account.accountId,
-        to: String(message.peerId),
+        to: String(effectiveMessage.peerId),
         replyToId,
         editConversationMessageId,
         payload: commandReplyMenuBehavior
@@ -632,5 +911,10 @@ export async function handleVkInboundMessage(params: {
     },
     typingCallbacks,
   });
+  if (isAttachmentOnlyMessage) {
+    log?.warn?.(
+      `[${account.accountId}] VK attachment-only DM dispatch done message=${effectiveMessage.messageId} elapsedMs=${Date.now() - dmDispatchStartedAt}`,
+    );
+  }
   traceInbound("after-dm-dispatch");
 }

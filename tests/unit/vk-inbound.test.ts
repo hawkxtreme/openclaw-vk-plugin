@@ -38,6 +38,18 @@ import {
 import { clearVkRuntime, setVkRuntime } from "../../src/runtime.js";
 import type { OpenClawConfig } from "../../src/types.js";
 import { createVkAccessController } from "../../src/vk-core/inbound/access.js";
+import { normalizeVkMessageNewUpdate } from "../../src/vk-core/inbound/normalize.js";
+
+const IMAGE_ATTACHMENT_ONLY_BODY =
+  "[User sent an image without caption]\n" +
+  "If you can inspect the image, describe it.\n" +
+  "If you cannot inspect it with the current model, explicitly say that an image was received but cannot be analyzed right now.";
+
+const AUDIO_ATTACHMENT_ONLY_BODY =
+  "[User sent a voice or audio attachment without caption]\n" +
+  "Attachment titles: Example Artist - Example Track.\n" +
+  "If you can inspect the audio, transcribe or describe it.\n" +
+  "If you cannot inspect it with the current model, explicitly say that a voice or audio attachment was received but cannot be analyzed right now.";
 
 function createRuntimeMock() {
   return {
@@ -75,6 +87,8 @@ describe("vk inbound handling", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
     clearVkRuntime();
     clearVkInteractiveMessageState();
   });
@@ -137,6 +151,579 @@ describe("vk inbound handling", () => {
       senderId: "42",
       messageId: "501",
       commandAuthorized: true,
+    });
+  });
+
+  it("passes inbound VK photo attachments through DM media context", async () => {
+    resolveInboundDirectDmAccessWithRuntimeMock.mockResolvedValue({
+      access: {
+        decision: "allow",
+        reason: "allowlist",
+        reasonCode: "allowlist",
+        effectiveAllowFrom: ["42"],
+      },
+      shouldComputeAuth: false,
+      senderAllowedForCommands: true,
+      commandAuthorized: true,
+    });
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          accessToken: "replace-me-callback-token",
+          dmPolicy: "allowlist",
+          allowFrom: ["42"],
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+
+    await handleVkInboundMessage({
+      cfg,
+      account,
+      message: {
+        accountId: "default",
+        groupId: 77,
+        transport: "callback-api",
+        eventType: "message_new",
+        dedupeKey: "event:dm-photo-1",
+        messageId: "502",
+        peerId: 42,
+        senderId: 42,
+        text: "Что на фото?",
+        createdAt: 1700000000000,
+        isGroupChat: false,
+        rawUpdate: {},
+        attachments: [
+          {
+            kind: "image",
+            url: "https://example.com/photo-large.jpg",
+            contentType: "image/jpeg",
+          },
+        ],
+      } as never,
+    });
+
+    expect(dispatchInboundDirectDmWithRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(dispatchInboundDirectDmWithRuntimeMock.mock.calls[0]?.[0]).toMatchObject({
+      extraContext: {
+        MediaUrl: "https://example.com/photo-large.jpg",
+        MediaUrls: ["https://example.com/photo-large.jpg"],
+        MediaType: "image/jpeg",
+        MediaTypes: ["image/jpeg"],
+      },
+    });
+  });
+
+  it("routes attachment-only direct messages with a synthetic media body", async () => {
+    resolveInboundDirectDmAccessWithRuntimeMock.mockResolvedValue({
+      access: {
+        decision: "allow",
+        reason: "allowlist",
+        reasonCode: "allowlist",
+        effectiveAllowFrom: ["42"],
+      },
+      shouldComputeAuth: false,
+      senderAllowedForCommands: true,
+      commandAuthorized: true,
+    });
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          accessToken: "replace-me-callback-token",
+          dmPolicy: "allowlist",
+          allowFrom: ["42"],
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+
+    await handleVkInboundMessage({
+      cfg,
+      account,
+      message: {
+        accountId: "default",
+        groupId: 77,
+        transport: "callback-api",
+        eventType: "message_new",
+        dedupeKey: "event:dm-photo-only-1",
+        messageId: "503",
+        peerId: 42,
+        senderId: 42,
+        text: "",
+        createdAt: 1700000000000,
+        isGroupChat: false,
+        rawUpdate: {},
+        attachments: [
+          {
+            kind: "image",
+            url: "https://example.com/photo-large.jpg",
+            contentType: "image/jpeg",
+          },
+        ],
+      } as never,
+    });
+
+    expect(dispatchInboundDirectDmWithRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(dispatchInboundDirectDmWithRuntimeMock.mock.calls[0]?.[0]).toMatchObject({
+      rawBody: IMAGE_ATTACHMENT_ONLY_BODY,
+      extraContext: {
+        MediaUrl: "https://example.com/photo-large.jpg",
+        MediaUrls: ["https://example.com/photo-large.jpg"],
+        MediaType: "image/jpeg",
+        MediaTypes: ["image/jpeg"],
+      },
+    });
+  });
+
+  it("hydrates long-poll attachment-only direct messages from VK API before dispatch", async () => {
+    resolveInboundDirectDmAccessWithRuntimeMock.mockResolvedValue({
+      access: {
+        decision: "allow",
+        reason: "allowlist",
+        reasonCode: "allowlist",
+        effectiveAllowFrom: ["42"],
+      },
+      shouldComputeAuth: false,
+      senderAllowedForCommands: true,
+      commandAuthorized: true,
+    });
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/method/messages.getByConversationMessageId") {
+        return new Response(
+          JSON.stringify({
+            response: {
+              items: [
+                {
+                  conversation_message_id: 777,
+                  attachments: [
+                    {
+                      type: "photo",
+                      photo: {
+                        orig_photo: {
+                          url: "https://example.com/photo-large.jpg",
+                        },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url.toString()}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          accessToken: "replace-me-long-poll-token",
+          dmPolicy: "allowlist",
+          allowFrom: ["42"],
+          transport: "long-poll",
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+
+    await handleVkInboundMessage({
+      cfg,
+      account,
+      message: {
+        accountId: "default",
+        groupId: 77,
+        transport: "long-poll",
+        eventType: "message_new",
+        dedupeKey: "event:dm-photo-hydrate-1",
+        messageId: "504",
+        conversationMessageId: "777",
+        peerId: 42,
+        senderId: 42,
+        text: "",
+        createdAt: 1700000000000,
+        isGroupChat: false,
+        rawUpdate: {},
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(dispatchInboundDirectDmWithRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(dispatchInboundDirectDmWithRuntimeMock.mock.calls[0]?.[0]).toMatchObject({
+      rawBody: IMAGE_ATTACHMENT_ONLY_BODY,
+      extraContext: {
+        MediaUrl: "https://example.com/photo-large.jpg",
+        MediaUrls: ["https://example.com/photo-large.jpg"],
+        MediaType: "image/jpeg",
+        MediaTypes: ["image/jpeg"],
+      },
+    });
+  });
+
+  it("retries long-poll attachment hydration when VK audio metadata is not ready on the first lookup", async () => {
+    resolveInboundDirectDmAccessWithRuntimeMock.mockResolvedValue({
+      access: {
+        decision: "allow",
+        reason: "allowlist",
+        reasonCode: "allowlist",
+        effectiveAllowFrom: ["42"],
+      },
+      shouldComputeAuth: false,
+      senderAllowedForCommands: true,
+      commandAuthorized: true,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            response: {
+              items: [
+                {
+                  conversation_message_id: 778,
+                  attachments: [],
+                },
+              ],
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            response: {
+              items: [
+                {
+                  conversation_message_id: 778,
+                  attachments: [
+                    {
+                      type: "audio",
+                      audio: {
+                        url: "https://example.com/audio.mp3",
+                        artist: "Example Artist",
+                        title: "Example Track",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          accessToken: "replace-me-long-poll-token",
+          dmPolicy: "allowlist",
+          allowFrom: ["42"],
+          transport: "long-poll",
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+
+    const run = handleVkInboundMessage({
+      cfg,
+      account,
+      message: {
+        accountId: "default",
+        groupId: 77,
+        transport: "long-poll",
+        eventType: "message_new",
+        dedupeKey: "event:dm-audio-hydrate-retry-1",
+        messageId: "505",
+        conversationMessageId: "778",
+        peerId: 42,
+        senderId: 42,
+        text: "",
+        createdAt: 1700000000000,
+        isGroupChat: false,
+        rawUpdate: {},
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await run;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(dispatchInboundDirectDmWithRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(dispatchInboundDirectDmWithRuntimeMock.mock.calls[0]?.[0]).toMatchObject({
+      rawBody: AUDIO_ATTACHMENT_ONLY_BODY,
+      extraContext: {
+        MediaUrl: "https://example.com/audio.mp3",
+        MediaUrls: ["https://example.com/audio.mp3"],
+        MediaType: "audio/mpeg",
+        MediaTypes: ["audio/mpeg"],
+        MediaKind: "audio_message",
+        MediaKinds: ["audio_message"],
+        MediaTitle: "Example Artist - Example Track",
+        MediaTitles: ["Example Artist - Example Track"],
+      },
+    });
+  });
+
+  it("routes exact raw long-poll photo-only message_new updates through the attachment fallback", async () => {
+    resolveInboundDirectDmAccessWithRuntimeMock.mockResolvedValue({
+      access: {
+        decision: "allow",
+        reason: "allowlist",
+        reasonCode: "allowlist",
+        effectiveAllowFrom: ["42"],
+      },
+      shouldComputeAuth: false,
+      senderAllowedForCommands: true,
+      commandAuthorized: true,
+    });
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          accessToken: "replace-me-long-poll-token",
+          dmPolicy: "allowlist",
+          allowFrom: ["42"],
+          transport: "long-poll",
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+    const normalized = normalizeVkMessageNewUpdate({
+      accountId: "default",
+      groupId: 77,
+      transport: "long-poll",
+      update: {
+        type: "message_new",
+        event_id: "evt-photo-only-live-1",
+        group_id: 77,
+        object: {
+          client_info: {
+            keyboard: true,
+            inline_keyboard: true,
+          },
+          message: {
+            date: 1_700_000_000,
+            from_id: 42,
+            id: 820,
+            version: 10002542,
+            out: 0,
+            fwd_messages: [],
+            important: false,
+            is_hidden: false,
+            attachments: [
+              {
+                type: "photo",
+                photo: {
+                  sizes: [
+                    {
+                      height: 921,
+                      type: "x",
+                      width: 640,
+                      url: "https://example.com/photo-medium.jpg",
+                    },
+                  ],
+                  orig_photo: {
+                    height: 1184,
+                    type: "base",
+                    url: "https://example.com/photo-large.jpg",
+                    width: 823,
+                  },
+                },
+              },
+            ],
+            conversation_message_id: 793,
+            text: "",
+            peer_id: 42,
+            random_id: 0,
+          },
+        },
+      },
+      now: () => 1_700_000_000_000,
+    });
+
+    expect(normalized).toMatchObject({
+      messageId: "820",
+      conversationMessageId: "793",
+      text: "",
+      attachments: [
+        {
+          kind: "image",
+          url: "https://example.com/photo-large.jpg",
+          contentType: "image/jpeg",
+        },
+      ],
+    });
+
+    await handleVkInboundMessage({
+      cfg,
+      account,
+      message: normalized!,
+    });
+
+    expect(dispatchInboundDirectDmWithRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(dispatchInboundDirectDmWithRuntimeMock.mock.calls[0]?.[0]).toMatchObject({
+      messageId: "820",
+      rawBody: IMAGE_ATTACHMENT_ONLY_BODY,
+      extraContext: {
+        MediaUrl: "https://example.com/photo-large.jpg",
+        MediaUrls: ["https://example.com/photo-large.jpg"],
+        MediaType: "image/jpeg",
+        MediaTypes: ["image/jpeg"],
+      },
+    });
+  });
+
+  it("normalizes inbound VK audio attachments into audio_message media", () => {
+    const normalized = normalizeVkMessageNewUpdate({
+      accountId: "default",
+      groupId: 77,
+      transport: "long-poll",
+      update: {
+        type: "message_new",
+        group_id: 77,
+        object: {
+          message: {
+            date: 1_700_000_000,
+            from_id: 42,
+            id: 900,
+            out: 0,
+            fwd_messages: [],
+            important: false,
+            is_hidden: false,
+            attachments: [
+              {
+                type: "audio",
+                audio: {
+                  url: "https://example.com/audio.mp3",
+                  artist: "Example Artist",
+                  title: "Example Track",
+                },
+              },
+            ],
+            conversation_message_id: 901,
+            text: "",
+            peer_id: 42,
+            random_id: 0,
+          },
+        },
+      },
+      now: () => 1_700_000_000_000,
+    });
+
+    expect(normalized?.attachments).toEqual([
+      {
+        kind: "audio_message",
+        url: "https://example.com/audio.mp3",
+        contentType: "audio/mpeg",
+        title: "Example Artist - Example Track",
+      },
+    ]);
+  });
+
+  it("routes attachment-only audio messages with an audio-specific synthetic body", async () => {
+    resolveInboundDirectDmAccessWithRuntimeMock.mockResolvedValue({
+      access: {
+        decision: "allow",
+        reason: "allowlist",
+        reasonCode: "allowlist",
+        effectiveAllowFrom: ["42"],
+      },
+      shouldComputeAuth: false,
+      senderAllowedForCommands: true,
+      commandAuthorized: true,
+    });
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          accessToken: "replace-me-long-poll-token",
+          dmPolicy: "allowlist",
+          allowFrom: ["42"],
+          transport: "long-poll",
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+    const normalized = normalizeVkMessageNewUpdate({
+      accountId: "default",
+      groupId: 77,
+      transport: "long-poll",
+      update: {
+        type: "message_new",
+        group_id: 77,
+        object: {
+          message: {
+            date: 1_700_000_000,
+            from_id: 42,
+            id: 901,
+            out: 0,
+            fwd_messages: [],
+            important: false,
+            is_hidden: false,
+            attachments: [
+              {
+                type: "audio",
+                audio: {
+                  url: "https://example.com/audio.mp3",
+                  artist: "Example Artist",
+                  title: "Example Track",
+                },
+              },
+            ],
+            conversation_message_id: 902,
+            text: "",
+            peer_id: 42,
+            random_id: 0,
+          },
+        },
+      },
+      now: () => 1_700_000_000_000,
+    });
+
+    await handleVkInboundMessage({
+      cfg,
+      account,
+      message: normalized!,
+    });
+
+    expect(dispatchInboundDirectDmWithRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(dispatchInboundDirectDmWithRuntimeMock.mock.calls[0]?.[0]).toMatchObject({
+      messageId: "901",
+      rawBody: AUDIO_ATTACHMENT_ONLY_BODY,
+      extraContext: {
+        MediaUrl: "https://example.com/audio.mp3",
+        MediaUrls: ["https://example.com/audio.mp3"],
+        MediaType: "audio/mpeg",
+        MediaTypes: ["audio/mpeg"],
+        MediaKind: "audio_message",
+        MediaKinds: ["audio_message"],
+        MediaTitle: "Example Artist - Example Track",
+        MediaTitles: ["Example Artist - Example Track"],
+      },
     });
   });
 
@@ -381,9 +968,11 @@ describe("vk inbound handling", () => {
       "VK uses buttons for command menus. Choose a command:",
     );
     const keyboard = JSON.parse(sendUrl?.searchParams.get("keyboard") ?? "{}");
+    expect(keyboard.inline ?? false).toBe(false);
     expect(Object.hasOwn(keyboard, "one_time")).toBe(true);
     expect(keyboard.one_time).toBe(false);
     expect(keyboard.buttons).toHaveLength(5);
+    expect(keyboard.buttons[0][0].action.type).toBe("text");
     expect(keyboard.buttons[0][0].action.label).toBe("Menu");
     expect(keyboard.buttons[0][1].action.label).toBe("Help");
     expect(keyboard.buttons[4][0].action.label).toBe("Close");
@@ -526,9 +1115,10 @@ describe("vk inbound handling", () => {
       "VK uses buttons for command menus. Matching commands:",
     );
     const keyboard = JSON.parse(sendUrl?.searchParams.get("keyboard") ?? "{}");
-    expect(Object.hasOwn(keyboard, "one_time")).toBe(true);
-    expect(keyboard.one_time).toBe(false);
+    expect(keyboard.inline).toBe(true);
+    expect(Object.hasOwn(keyboard, "one_time")).toBe(false);
     expect(keyboard.buttons).toHaveLength(2);
+    expect(keyboard.buttons[0][0].action.type).toBe("callback");
     expect(keyboard.buttons[0][0].action.label).toBe("Model");
     expect(keyboard.buttons[0][1].action.label).toBe("Models");
     expect(keyboard.buttons[1][0].action.label).toBe("Close");
@@ -598,9 +1188,10 @@ describe("vk inbound handling", () => {
       "VK uses buttons for command menus. Matching commands:",
     );
     const keyboard = JSON.parse(sendUrl?.searchParams.get("keyboard") ?? "{}");
-    expect(Object.hasOwn(keyboard, "one_time")).toBe(true);
-    expect(keyboard.one_time).toBe(false);
+    expect(keyboard.inline).toBe(true);
+    expect(Object.hasOwn(keyboard, "one_time")).toBe(false);
     expect(keyboard.buttons).toHaveLength(2);
+    expect(keyboard.buttons[0][0].action.type).toBe("callback");
     expect(keyboard.buttons[0][0].action.label).toBe("Status");
     expect(keyboard.buttons[0][1].action.label).toBe("Stop");
     expect(keyboard.buttons[1][0].action.label).toBe("Close");
@@ -775,7 +1366,7 @@ describe("vk inbound handling", () => {
     });
   });
 
-  it("restores the long-poll root keyboard when closing an active DM menu", async () => {
+  it("restores the long-poll collapsed launcher when closing an active DM menu", async () => {
     resolveInboundDirectDmAccessWithRuntimeMock.mockResolvedValue({
       access: {
         decision: "allow",
@@ -843,17 +1434,13 @@ describe("vk inbound handling", () => {
     expect(requestedUrls.some((url) => url.pathname === "/method/messages.edit")).toBe(false);
     const sendUrl = requestedUrls.find((url) => url.pathname === "/method/messages.send");
     expect(sendUrl?.searchParams.get("message")).toBe(
-      "Menu collapsed. Open the keyboard to continue.",
+      "Menu collapsed. Tap Menu to reopen.",
     );
     const keyboard = JSON.parse(sendUrl?.searchParams.get("keyboard") ?? "{}");
     expect(keyboard.inline ?? false).toBe(false);
     expect(keyboard.one_time).toBe(false);
-    expect(keyboard.buttons).toHaveLength(5);
+    expect(keyboard.buttons).toHaveLength(1);
     expect(keyboard.buttons[0][0].action.label).toBe("Menu");
-    expect(keyboard.buttons[0][1].action.label).toBe("Help");
-    expect(keyboard.buttons[3][0].action.label).toBe("Status");
-    expect(keyboard.buttons[3][1].action.label).toBe("Tools");
-    expect(keyboard.buttons[4][0].action.label).toBe("Close");
   });
 
   it("routes allowed group messages through the shared reply dispatcher", async () => {
@@ -978,6 +1565,184 @@ describe("vk inbound handling", () => {
       unknown
     >;
     expect(ctxPayload.WasMentioned).toBe(false);
+  });
+
+  it("opens the long-poll group menu alias without a mention", async () => {
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          transport: "long-poll",
+          accessToken: "replace-me-longpoll-token",
+          groupPolicy: "open",
+          groups: {
+            "2000000123": {
+              requireMention: true,
+            },
+          },
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+    const accessController = createVkAccessController();
+    const requestedUrls: URL[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        requestedUrls.push(new URL(String(input)));
+        return new Response(
+          JSON.stringify({
+            response: 90064,
+          }),
+        );
+      }),
+    );
+
+    await handleVkInboundMessage({
+      cfg,
+      account,
+      accessController,
+      message: {
+        accountId: "default",
+        groupId: 77,
+        transport: "long-poll",
+        eventType: "message_new",
+        dedupeKey: "event:group-menu-alias-no-mention",
+        messageId: "783",
+        peerId: 2000000123,
+        senderId: 42,
+        text: "меню",
+        createdAt: 1700000100005,
+        isGroupChat: true,
+        rawUpdate: {},
+      },
+    });
+
+    expect(dispatchInboundReplyWithBaseMock).not.toHaveBeenCalled();
+    const sendUrl = requestedUrls.find((url) => url.pathname === "/method/messages.send");
+    expect(sendUrl?.searchParams.get("message")).toBe(
+      "VK uses buttons for command menus. Choose a command:",
+    );
+    const keyboard = JSON.parse(sendUrl?.searchParams.get("keyboard") ?? "{}");
+    expect(keyboard.inline).toBe(true);
+    expect(Object.hasOwn(keyboard, "one_time")).toBe(false);
+    expect(keyboard.buttons[0][0].action.type).toBe("callback");
+    expect(keyboard.buttons[0][0].action.label).toBe("Menu");
+    expect(keyboard.buttons[4][0].action.label).toBe("Close");
+  });
+
+  it("routes the long-poll group Russian help alias without a mention", async () => {
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          transport: "long-poll",
+          accessToken: "replace-me-longpoll-token",
+          groupPolicy: "open",
+          groups: {
+            "2000000123": {
+              requireMention: true,
+            },
+          },
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+    const accessController = createVkAccessController();
+
+    await handleVkInboundMessage({
+      cfg,
+      account,
+      accessController,
+      message: {
+        accountId: "default",
+        groupId: 77,
+        transport: "long-poll",
+        eventType: "message_new",
+        dedupeKey: "event:group-russian-help-alias-no-mention",
+        messageId: "7831",
+        peerId: 2000000123,
+        senderId: 42,
+        text: "помощь",
+        createdAt: 17000001000051,
+        isGroupChat: true,
+        rawUpdate: {},
+      },
+    });
+
+    expect(dispatchInboundReplyWithBaseMock).toHaveBeenCalledTimes(1);
+    const params = dispatchInboundReplyWithBaseMock.mock.calls.at(-1)?.[0] as
+      | { ctxPayload?: Record<string, unknown> }
+      | undefined;
+    expect(params?.ctxPayload?.CommandBody).toBe("/help");
+    expect(params?.ctxPayload?.RawBody).toBe("/help");
+    expect(params?.ctxPayload?.WasMentioned).toBe(false);
+  });
+
+  it("normalizes a leading VK group mention into a slash command body", async () => {
+    setVkRuntime({
+      ...createRuntimeMock(),
+      channel: {
+        ...createRuntimeMock().channel,
+        commands: {
+          shouldComputeCommandAuthorized: vi.fn(() => true),
+          resolveCommandAuthorizedFromAuthorizers: vi.fn(() => true),
+        },
+      },
+    } as never);
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          accessToken: "replace-me-callback-token",
+          groupPolicy: "open",
+          groups: {
+            "2000000123": {
+              requireMention: true,
+            },
+          },
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+    const accessController = createVkAccessController();
+
+    await handleVkInboundMessage({
+      cfg,
+      account,
+      accessController,
+      message: {
+        accountId: "default",
+        groupId: 77,
+        transport: "long-poll",
+        eventType: "message_new",
+        dedupeKey: "event:group-mentioned-command",
+        messageId: "779",
+        peerId: 2000000123,
+        senderId: 42,
+        text: "[club77|test_openclaw] status",
+        createdAt: 1700000100000,
+        isGroupChat: true,
+        rawUpdate: {},
+      },
+    });
+
+    expect(dispatchInboundReplyWithBaseMock).toHaveBeenCalledTimes(1);
+    const params = dispatchInboundReplyWithBaseMock.mock.calls[0]?.[0] as
+      | { ctxPayload?: Record<string, unknown> }
+      | undefined;
+    expect(params?.ctxPayload?.RawBody).toBe("/status");
+    expect(params?.ctxPayload?.CommandBody).toBe("/status");
+    expect(params?.ctxPayload?.WasMentioned).toBe(true);
   });
 
   it("omits VK group reply_to when only a global message id is available", async () => {

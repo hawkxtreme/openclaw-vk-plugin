@@ -166,17 +166,125 @@ describe("vk gateway long-poll events", () => {
         senderId: 42,
       },
     });
-    expect(sendVkMessageEventAnswerMock).toHaveBeenCalledWith({
+    const firstAnswerCall = sendVkMessageEventAnswerMock.mock.calls[0] as unknown[] | undefined;
+    const firstAnswer = firstAnswerCall?.[0] as Record<string, unknown> | undefined;
+    expect(firstAnswer).toMatchObject({
       token: "replace-me-longpoll-token",
       eventId: "callback-event-1",
       userId: 42,
       peerId: 42,
       eventData: {
         type: "show_snackbar",
-        text: "Running /commands...",
+        text: "Opening menu...",
       },
       apiVersion: "5.199",
-      fetchImpl: undefined,
+    });
+  });
+
+  it("normalizes localized long-poll interactive payload aliases before dispatch and snackbar reply", async () => {
+    createVkLongPollMonitorMock.mockImplementation(
+      (options: {
+        onInteractiveEvent?: (event: {
+          accountId: string;
+          groupId: number;
+          transport: "long-poll";
+          eventType: "message_event";
+          eventId?: string;
+          dedupeKey: string;
+          callbackEventId: string;
+          senderId: number;
+          peerId: number;
+          conversationMessageId?: string;
+          payload?: unknown;
+          rawUpdate: unknown;
+        }) => Promise<void> | void;
+      }) => ({
+        start: async () => {
+          await options.onInteractiveEvent?.({
+            accountId: "default",
+            groupId: 77,
+            transport: "long-poll",
+            eventType: "message_event",
+            eventId: "evt-event-localized-1",
+            dedupeKey: "event:evt-event-localized-1",
+            callbackEventId: "callback-event-localized-1",
+            senderId: 42,
+            peerId: 42,
+            conversationMessageId: "19",
+            payload: { oc: "/команды" },
+            rawUpdate: {},
+          });
+        },
+        stop: vi.fn(),
+        getStatus: () => ({
+          state: "running" as const,
+          active: true,
+          connected: true,
+          accountId: "default",
+          transport: "long-poll" as const,
+          receivedEvents: 1,
+          deliveredEvents: 1,
+          dedupedEvents: 0,
+          reconnectAttempts: 0,
+        }),
+      }),
+    );
+
+    const cfg: OpenClawConfig = {
+      channels: {
+        vk: {
+          groupId: 77,
+          transport: "long-poll",
+          accessToken: "replace-me-longpoll-token",
+        },
+      },
+    };
+    const account = resolveVkAccount({
+      cfg,
+      accountId: "default",
+    });
+
+    await vkGatewayAdapter.startAccount?.({
+      cfg,
+      accountId: "default",
+      account,
+      runtime: {} as never,
+      abortSignal: new AbortController().signal,
+      log: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+      getStatus: () => ({ accountId: "default" }),
+      setStatus: vi.fn(),
+    });
+
+    expect(handleVkInboundMessageMock).toHaveBeenCalledTimes(1);
+    expect(handleVkInboundMessageMock.mock.calls[0]?.[0]).toMatchObject({
+      message: {
+        transport: "long-poll",
+        text: "/commands",
+        messageId: "callback-event-localized-1",
+        conversationMessageId: "19",
+        editConversationMessageId: "19",
+        peerId: 42,
+        senderId: 42,
+      },
+    });
+    const localizedAnswerCall = sendVkMessageEventAnswerMock.mock.calls[0] as
+      | unknown[]
+      | undefined;
+    const localizedAnswer = localizedAnswerCall?.[0] as Record<string, unknown> | undefined;
+    expect(localizedAnswer).toMatchObject({
+      token: "replace-me-longpoll-token",
+      eventId: "callback-event-localized-1",
+      userId: 42,
+      peerId: 42,
+      eventData: {
+        type: "show_snackbar",
+        text: "Opening menu...",
+      },
+      apiVersion: "5.199",
     });
   });
 });

@@ -303,6 +303,99 @@ describe("vk long poll monitor", () => {
     });
   });
 
+  it("refreshes the long poll server after repeated transient poll fetch failures", async () => {
+    const account = createAccount();
+    const serverRequests: string[] = [];
+    const pollRequests: string[] = [];
+    const warnings: string[] = [];
+    let longPollServerCall = 0;
+    let pollCalls = 0;
+
+    const monitor = createVkLongPollMonitor({
+      account,
+      waitSeconds: 1,
+      reconnectDelayMs: 0,
+      fetchImpl: async (input: Parameters<NonNullable<VkLongPollMonitorOptions["fetchImpl"]>>[0]) => {
+        const url = String(input);
+
+        if (url.includes("groups.getLongPollServer")) {
+          serverRequests.push(url);
+          longPollServerCall += 1;
+          return new Response(
+            JSON.stringify({
+              response: {
+                server: `https://lp.vk.test/retry-${String(longPollServerCall)}`,
+                key: `retry-key-${String(longPollServerCall)}`,
+                ts: `${String(longPollServerCall)}00`,
+              },
+            }),
+          );
+        }
+
+        pollRequests.push(url);
+        pollCalls += 1;
+        if (pollCalls <= 2) {
+          const error = new TypeError("fetch failed") as TypeError & {
+            cause?: { code?: string; message?: string };
+          };
+          error.cause = {
+            code: "ECONNRESET",
+            message: "socket hang up",
+          };
+          throw error;
+        }
+
+        return new Response(
+          JSON.stringify({
+            ts: "201",
+            updates: [
+              {
+                type: "message_new",
+                group_id: 77,
+                event_id: "evt-recovered-after-refresh",
+                object: {
+                  message: {
+                    id: 1001,
+                    peer_id: 42,
+                    from_id: 42,
+                    text: "Recovered after server refresh",
+                    date: 1_700_000_500,
+                  },
+                },
+              },
+            ],
+          }),
+        );
+      },
+      onMessage: () => {
+        monitor.stop("received-after-refresh");
+      },
+      logger: {
+        warn: (message) => {
+          warnings.push(message);
+        },
+      },
+    });
+
+    await monitor.start();
+
+    expect(serverRequests).toHaveLength(2);
+    expect(pollRequests).toHaveLength(3);
+    expect(pollRequests[0]).toContain("https://lp.vk.test/retry-1");
+    expect(pollRequests[1]).toContain("https://lp.vk.test/retry-1");
+    expect(pollRequests[2]).toContain("https://lp.vk.test/retry-2");
+    expect(warnings).toEqual([
+      "[default] VK long poll transport error: fetch failed (ECONNRESET: socket hang up); retrying current long poll server",
+      "[default] VK long poll transport error: fetch failed (ECONNRESET: socket hang up); refreshing long poll server after repeated transport errors",
+    ]);
+    expect(monitor.getStatus()).toMatchObject({
+      state: "stopped",
+      reconnectAttempts: 2,
+      deliveredEvents: 1,
+      stopReason: "received-after-refresh",
+    });
+  });
+
   it("stops cleanly while waiting for a long poll response", async () => {
     const account = createAccount();
     let pollWasAborted = false;

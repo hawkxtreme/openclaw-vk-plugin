@@ -1,5 +1,7 @@
 import { DEFAULT_VK_API_VERSION, type VkGroupSummary } from "../types/config.js";
 import type { VkFormatData } from "../types/format.js";
+import { normalizeVkAttachments } from "../inbound/normalize.js";
+import type { VkInboundAttachment } from "../types/longpoll.js";
 import type { VkLongPollResponse, VkLongPollServer } from "../types/longpoll.js";
 
 const VK_API_BASE = "https://api.vk.com/method";
@@ -15,6 +17,12 @@ type VkApiErrorResponse = {
 type VkApiResponse<T> = {
   response: T;
 };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
 
 export class VkApiError extends Error {
   readonly code: number;
@@ -263,6 +271,43 @@ export async function resolveVkConversationMessageIdForMessage(params: {
     if (/^\d+$/u.test(conversationMessageId)) {
       return conversationMessageId;
     }
+  }
+
+  return undefined;
+}
+
+export async function getVkMessageAttachmentsByConversationMessageId(params: {
+  token: string;
+  peerId: number;
+  conversationMessageId: string | number;
+  apiVersion?: string;
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}): Promise<VkInboundAttachment[] | undefined> {
+  const response = await vkApi<{
+    items?: unknown[];
+  }>({
+    token: params.token,
+    method: "messages.getByConversationMessageId",
+    apiVersion: params.apiVersion,
+    query: {
+      peer_id: params.peerId,
+      conversation_message_ids: params.conversationMessageId,
+    },
+    signal: params.signal,
+    fetchImpl: params.fetchImpl,
+  });
+
+  const targetConversationMessageId = String(params.conversationMessageId).trim();
+  for (const item of response.items ?? []) {
+    const record = asRecord(item);
+    if (!record) {
+      continue;
+    }
+    if (String(record.conversation_message_id ?? "").trim() !== targetConversationMessageId) {
+      continue;
+    }
+    return normalizeVkAttachments(record.attachments);
   }
 
   return undefined;

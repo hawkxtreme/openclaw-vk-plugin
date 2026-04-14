@@ -13,6 +13,11 @@ describe("vk text format", () => {
     expect(normalizeVkInboundBody("/models")).toBe("/models");
   });
 
+  it("strips a leading VK bot mention before command normalization", () => {
+    expect(normalizeVkInboundBody("[club77|test_openclaw] status")).toBe("status");
+    expect(normalizeVkInboundBody("@club77, help please")).toBe("help please");
+  });
+
   it("renders markdown as readable plain text for VK", () => {
     const rendered = formatVkOutboundText(`
 ## Heading

@@ -10,26 +10,23 @@
 
 ```bash
 node scripts/prepare-install-dir.mjs
-openclaw plugins install .artifacts/install/vk
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
 ```
 
-This is the fastest copied install path from a cloned repo because it skips the
-full development tree. If you want a live dev link instead, use:
+This is the recommended standalone path because `plugins.load.paths` gives the
+repo bundle `config` precedence over the bundled OpenClaw `vk` plugin. If you
+want a live dev link instead, use:
 
 ```bash
-openclaw plugins install . --link
+openclaw config set plugins.load.paths.0 "$(pwd)"
 openclaw plugins enable vk
 ```
 
-## Option 2: install from npm
+## Option 2: published package
 
-After publishing the package:
-
-```bash
-openclaw plugins install @openclaw/vk
-openclaw plugins enable vk
-```
+The supported public runtime path still uses `plugins.load.paths` until
+OpenClaw ships a host-side fix for bundled `vk` versus standalone `vk`.
 
 ## VK-side setup
 
@@ -60,7 +57,7 @@ openclaw channels status --probe
 
 ```bash
 node scripts/prepare-install-dir.mjs
-openclaw plugins install .artifacts/install/vk
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 237442417
@@ -74,7 +71,7 @@ openclaw channels status --json --probe
 ## Minimal workflow
 
 1. Install the plugin
-2. Enable it
+2. Confirm the standalone plugin is enabled, or run `openclaw plugins enable vk`
 3. Configure `groupId` and `accessToken`
 4. Keep `transport` as `long-poll`
 5. Send a DM to the VK community

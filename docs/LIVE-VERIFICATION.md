@@ -3,8 +3,8 @@
 ## Latest live result: 2026-04-13
 
 Latest standalone live verification on `main` used a Docker runtime with the
-published standalone plugin installed into OpenClaw state and overriding the
-bundled `vk` channel plugin.
+prepared standalone bundle loaded through `plugins.load.paths` so the repo copy
+ran as a `config` plugin instead of relying on bundled-plugin override.
 
 Confirmed in a real VK DM:
 
@@ -19,19 +19,39 @@ Confirmed in a real VK DM:
 - the collapsed launcher can reopen the full menu with `Menu`
 - `Status` still works after `Close -> Menu -> reopen`
 - plain text chat still works after menu interactions
+- photo-only inbound DM works end to end on Long Poll:
+  - VK Web sent a real photo-only message at `18:05`
+  - the standalone runtime recorded a fresh `inbound` event in `vk-flow`
+  - the bot delivered the attachment fallback reply at `18:06`
+- audio file attachments in DM now normalize and dispatch on Long Poll:
+  - VK Web sent an audio file at `19:33`
+  - the runtime logged `attachments=1` with `rawAttachmentKinds=["audio"]`
+  - the bot delivered the generic attachment fallback reply at `19:33`
+- voice or audio attachments no longer get skipped after the config-load-path
+  workaround:
+  - VK Web sent a fresh audio attachment at `20:33`
+  - the runtime normalized it to `attachmentKinds=["audio_message"]`
+  - the bot completed attachment-only dispatch and delivered the fallback reply
+    at `20:34`
+- group-chat mention commands work end to end on Long Poll:
+  - VK Web sent `[club237442417|test_openclaw] status` into the real
+    `OpenClaw Group Smoke` chat at `18:44`
+  - the standalone runtime normalized the inbound body to `/status` before
+    dispatch
+  - the bot delivered the normal multi-line status reply in the group chat at
+    `18:44`
 
 Observed caveats during the same live run:
 
-- Docker logs show an expected duplicate-plugin warning because the standalone
-  plugin overrides the bundled `vk` plugin inside the OpenClaw image
+- OpenClaw still emits a confusing duplicate-plugin warning for `vk`; the
+  supported workaround is to use `plugins.load.paths` for this standalone repo
 - VK Web can attach unexpected UI decorations to user messages without breaking
   the actual bot reply path
+- attachment fallback text is still generic and does not yet distinguish image
+  versus audio in the user-facing reply
 
 Not re-verified in that latest pass:
 
-- group-chat smoke
-- inbound image understanding
-- inbound voice understanding
 - outbound media delivery
 
 ## What to verify locally

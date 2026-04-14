@@ -222,6 +222,7 @@ describe("vk plugin adapters", () => {
       vk: {
         inline: true,
         oneTime: false,
+        longPollInlineCallback: true,
         buttons: [
           [
             { text: "Models", callback_data: "/models" },

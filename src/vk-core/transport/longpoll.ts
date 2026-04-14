@@ -56,6 +56,7 @@ export function createVkLongPollMonitor(options: VkLongPollMonitorOptions): VkLo
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
   const reconnectDelayMs = Math.max(0, options.reconnectDelayMs ?? 5_000);
+  const maxTransportErrorsPerServer = 1;
   const controller = new AbortController();
   const dedupe = createVkDedupeCache(options.dedupeMaxEntries);
 
@@ -167,6 +168,7 @@ export function createVkLongPollMonitor(options: VkLongPollMonitorOptions): VkLo
     });
 
     let server: VkLongPollServer | null = null;
+    let consecutiveTransportErrors = 0;
     while (!controller.signal.aborted) {
       try {
         if (!server) {
@@ -176,6 +178,7 @@ export function createVkLongPollMonitor(options: VkLongPollMonitorOptions): VkLo
             connected: false,
           });
           server = await connectServer(groupId);
+          consecutiveTransportErrors = 0;
         }
 
         let response: VkLongPollResponse;
@@ -194,6 +197,8 @@ export function createVkLongPollMonitor(options: VkLongPollMonitorOptions): VkLo
           }
 
           const message = renderTransportError(error);
+          consecutiveTransportErrors += 1;
+          const shouldRefreshServer = consecutiveTransportErrors > maxTransportErrorsPerServer;
           patchStatus({
             state: "reconnecting",
             connected: false,
@@ -202,13 +207,22 @@ export function createVkLongPollMonitor(options: VkLongPollMonitorOptions): VkLo
             lastReconnectAt: now(),
             reconnectAttempts: status.reconnectAttempts + 1,
           });
-          options.logger?.warn?.(
-            `[${options.account.accountId}] VK long poll transport error: ${message}; retrying current long poll server`,
-          );
+          if (shouldRefreshServer) {
+            options.logger?.warn?.(
+              `[${options.account.accountId}] VK long poll transport error: ${message}; refreshing long poll server after repeated transport errors`,
+            );
+            server = null;
+            consecutiveTransportErrors = 0;
+          } else {
+            options.logger?.warn?.(
+              `[${options.account.accountId}] VK long poll transport error: ${message}; retrying current long poll server`,
+            );
+          }
           await delay(reconnectDelayMs, controller.signal);
           continue;
         }
 
+        consecutiveTransportErrors = 0;
         if (response.failed) {
           if (response.failed === 1 && response.ts) {
             server = {
@@ -236,6 +250,7 @@ export function createVkLongPollMonitor(options: VkLongPollMonitorOptions): VkLo
             `[${options.account.accountId}] ${errorMessage}; refreshing long poll server`,
           );
           server = null;
+          consecutiveTransportErrors = 0;
           await delay(reconnectDelayMs, controller.signal);
           continue;
         }
