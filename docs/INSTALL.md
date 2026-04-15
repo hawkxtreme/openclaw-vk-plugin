@@ -6,27 +6,40 @@
 - OpenClaw `>=2026.4.6`
 - A VK community with messages enabled
 
-## Option 1: install from a local checkout
+## Recommended path: install from npm
+
+The shortest normal-user path is now:
 
 ```bash
-node scripts/prepare-install-dir.mjs
-openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
+openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
 ```
 
-This is the recommended standalone path because `plugins.load.paths` gives the
-repo bundle `config` precedence over the bundled OpenClaw `vk` plugin. If you
-want a live dev link instead, use:
+Then configure VK:
 
 ```bash
-openclaw config set plugins.load.paths.0 "$(pwd)"
-openclaw plugins enable vk
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+openclaw gateway restart
+openclaw channels status --json --probe
 ```
 
-## Option 2: published package
+This npm install path is already verified on the real CLI. The standalone
+plugin is installed as a global plugin and overrides bundled `vk`.
 
-The supported public runtime path still uses `plugins.load.paths` until
-OpenClaw ships a host-side fix for bundled `vk` versus standalone `vk`.
+## Expected duplicate plugin warning
+
+You may see a warning about duplicate plugin id `vk`. That is expected for this
+install path:
+
+- bundled `vk` still exists in the host OpenClaw install
+- `openclaw-vk-plugin` is installed as a global extension
+- the global plugin gets precedence and overrides the bundled one
+
+This warning does not mean the standalone plugin failed to install.
 
 ## VK-side setup
 
@@ -45,37 +58,34 @@ Before the first probe:
 
 ## After install
 
-1. Add VK config under `channels.vk`
-2. Restart the gateway if it is already running
-3. Probe the channel
+1. Install the npm package
+2. Enable plugin `vk`
+3. Add VK config under `channels.vk`
+4. Restart the gateway if it is already running
+5. Probe the channel
 
 ```bash
-openclaw channels status --probe
-```
-
-## Fastest non-interactive setup
-
-```bash
-node scripts/prepare-install-dir.mjs
-openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
-openclaw plugins enable vk
-openclaw config set channels.vk.enabled true
-openclaw config set channels.vk.groupId 237442417
-openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
-openclaw config set channels.vk.transport long-poll
-openclaw config set channels.vk.dmPolicy pairing
-openclaw gateway restart
 openclaw channels status --json --probe
 ```
 
-## Minimal workflow
+## Local checkout path: development only
 
-1. Install the plugin
-2. Confirm the standalone plugin is enabled, or run `openclaw plugins enable vk`
-3. Configure `groupId` and `accessToken`
-4. Keep `transport` as `long-poll`
-5. Send a DM to the VK community
-6. Test the button menu, models, and tools
+Use the repo checkout path only if you are developing the plugin locally:
+
+```bash
+git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
+cd openclaw-vk-plugin
+
+node scripts/prepare-install-dir.mjs
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
+openclaw plugins enable vk
+```
+
+This path is useful for:
+
+- local code edits
+- validating unpublished changes
+- repo-owned Docker or VK live-smoke runs
 
 ## Why Long Poll first
 
@@ -84,15 +94,13 @@ openclaw channels status --json --probe
 - no callback secret or confirmation code
 - easier local and Docker verification
 
-## Docker note
-
-If OpenClaw already runs in Docker, mount this repo into the container and run
-the same plugin install and `openclaw config set ...` commands inside that
-container.
+## Docker and live-smoke
 
 If you want the repo to rebuild the Docker image and prepare a clean VK smoke
 stack for you, use:
 
 ```bash
+git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
+cd openclaw-vk-plugin
 npm run live-smoke -- --group https://vk.com/club123456789 --purge-conflicts
 ```

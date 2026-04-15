@@ -5,6 +5,28 @@
 Отдельный VK-плагин для OpenClaw с long-poll-first запуском, кнопочными меню,
 групповыми чатами и поддержкой медиа.
 
+## Главное
+
+Сейчас самый простой путь установки уже не через git checkout, а через npm:
+
+```bash
+openclaw plugins install openclaw-vk-plugin
+openclaw plugins enable vk
+openclaw config set channels.vk.enabled true
+openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+openclaw config set channels.vk.transport long-poll
+openclaw config set channels.vk.dmPolicy pairing
+openclaw gateway restart
+openclaw channels status --json --probe
+```
+
+Это уже проверено на реальном CLI:
+
+- `openclaw plugins install openclaw-vk-plugin` ставит standalone plugin из npm
+- plugin ставится как глобальный extension и override-ит bundled `vk`
+- отдельный `plugins.load.paths` для обычной npm-установки больше не нужен
+
 ## Что это за репозиторий
 
 Этот репозиторий выносит VK-канал в отдельный standalone-плагин со сценарием
@@ -18,31 +40,23 @@
 Активный продуктовый путь сейчас только один: VK Long Poll. Callback API
 считается архивной веткой и не входит в рекомендуемый сценарий запуска.
 
-## Зачем это использовать
+## Почему этот путь лучше
 
 - Проще первый запуск:
-  не нужны tunnel, webhook secret и callback confirmation code
+  не нужны git checkout, `plugins.load.paths`, tunnel и callback secret
+- Короче путь для обычного пользователя:
+  `plugins install` из npm, `plugins enable`, задать VK config и сделать probe
 - Лучше покрытие VK:
   личка, групповые чаты, кнопки, медиа и группы с обязательным mention
-- Лучше совместимость с OpenClaw:
-  metadata, setup, status, probe и security contract следуют OpenClaw plugin SDK
 - Лучше UX:
   меню команд, моделей и tools построены вокруг кнопок, а не памяти о slash-командах
 
-## Самый быстрый запуск
-
-Это самый короткий поддерживаемый путь сейчас. Он использует подготовленный
-локальный bundle как `plugins.load.paths` config plugin, чтобы standalone-копия
-имела приоритет над bundled `vk` plugin без изменений OpenClaw core.
+## Быстрый запуск
 
 ### Bash
 
 ```bash
-git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
-cd openclaw-vk-plugin
-
-node scripts/prepare-install-dir.mjs
-openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
+openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -58,11 +72,7 @@ openclaw channels status --json --probe
 ### PowerShell
 
 ```powershell
-git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
-Set-Location openclaw-vk-plugin
-
-node scripts/prepare-install-dir.mjs
-openclaw config set plugins.load.paths.0 ((Resolve-Path .artifacts/install/vk).Path)
+openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
 
 openclaw config set channels.vk.enabled true
@@ -76,11 +86,22 @@ openclaw channels status --json --probe
 ```
 
 Потом напишите боту в VK. Если `dmPolicy` выставлен в `pairing`, подтвердите
-первый код:
+первый pairing-код:
 
 ```bash
 openclaw pairing approve vk <CODE>
 ```
+
+## Важная заметка про duplicate plugin warning
+
+После `plugins install` OpenClaw может показать предупреждение про duplicate
+plugin id для `vk`. Для npm-установки это ожидаемо:
+
+- bundled `vk` остается в host OpenClaw
+- установленный npm plugin регистрируется как global plugin
+- global plugin получает приоритет и override-ит bundled `vk`
+
+Это не ошибка установки, а нормальное поведение текущего host precedence path.
 
 ## Подробности ручной настройки
 
@@ -110,26 +131,15 @@ openclaw pairing approve vk <CODE>
 - `https://dev.vk.com/ru/method/groups.setLongPollSettings`
 - `https://dev.vk.com/ru/method/messages.send`
 
-### 2. Подготовьте standalone load path
-
-Из локального checkout:
+### 2. Установите и включите плагин
 
 ```bash
-node scripts/prepare-install-dir.mjs
-openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
+openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
 ```
 
-Если нужен dev-link вместо trimmed bundle:
-
-```bash
-openclaw config set plugins.load.paths.0 "$(pwd)"
-openclaw plugins enable vk
-```
-
-Репозиторий держит package metadata отдельно от bundled `vk` plugin, но
-рекомендуемый runtime path пока остается через `plugins.load.paths`, пока
-OpenClaw не закроет host-side precedence issue для duplicate plugin id.
+Плагин ставится в глобальные OpenClaw extensions и записывается в
+`plugins.installs.vk`.
 
 ### 3. Настройте OpenClaw
 
@@ -147,6 +157,13 @@ openclaw config set channels.vk.dmPolicy pairing
 
 ```json
 {
+  "plugins": {
+    "entries": {
+      "vk": {
+        "enabled": true
+      }
+    }
+  },
   "channels": {
     "vk": {
       "enabled": true,
@@ -161,51 +178,51 @@ openclaw config set channels.vk.dmPolicy pairing
 
 ### 4. Запустите и проверьте
 
-Перезапустите gateway:
-
 ```bash
 openclaw gateway restart
-```
-
-Запустите probe:
-
-```bash
 openclaw channels status --json --probe
 ```
 
-Потом напишите боту в VK. Если `dmPolicy` выставлен в `pairing`, подтвердите
-первый pairing-код:
+Если `dmPolicy` выставлен в `pairing`, подтвердите первый pairing-код:
 
 ```bash
 openclaw pairing approve vk <CODE>
 ```
 
-## Docker и live-smoke
+## Локальный checkout нужен только для разработки
 
-Если OpenClaw уже работает в Docker, примонтируйте этот репозиторий в
-контейнер и выполните те же команды внутри контейнера:
+Если вы хотите править код плагина локально, а не просто использовать его,
+тогда уже нужен git checkout:
 
 ```bash
-node /work/openclaw-vk-plugin/scripts/prepare-install-dir.mjs
-openclaw config set plugins.load.paths.0 /work/openclaw-vk-plugin/.artifacts/install/vk
+git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
+cd openclaw-vk-plugin
+
+node scripts/prepare-install-dir.mjs
+openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
-openclaw config set channels.vk.enabled true
-openclaw config set channels.vk.groupId 123456789
-openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
-openclaw config set channels.vk.transport long-poll
-openclaw config set channels.vk.dmPolicy pairing
-openclaw gateway restart
-openclaw channels status --json --probe
 ```
+
+Этот путь полезен для:
+
+- локальной разработки
+- отладки до публикации новой версии в npm
+- live-smoke через repo wrapper
+
+Для обычной установки он уже не основной.
+
+## Docker и live-smoke
 
 Для повторяемого standalone Docker или VK smoke с автоматическим rebuild image
 используйте wrapper из репозитория:
 
 ```bash
+git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
+cd openclaw-vk-plugin
 npm run live-smoke -- --group https://vk.com/club123456789 --purge-conflicts
 ```
 
-Что делает этот wrapper:
+Что делает wrapper:
 
 - готовит `.artifacts/install/vk`
 - по умолчанию rebuild-ит host OpenClaw Docker image
