@@ -35,12 +35,16 @@
     "./package.json": "./package.json"
   },
   "scripts": {
+    "live-smoke": "node scripts/live-smoke.mjs",
     "prepare:install-dir": "node scripts/prepare-install-dir.mjs",
-    "test": "vitest run",
-    "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
-    "test:e2e": "vitest run tests/e2e",
-    "typecheck": "tsc --noEmit"
+    "release:check": "node scripts/release-check.mjs",
+    "release:publish": "node scripts/release-publish.mjs",
+    "release:publish:dry-run": "node scripts/release-publish.mjs --dry-run",
+    "test": "node scripts/run-local-bin.mjs vitest vitest.mjs run",
+    "test:unit": "node scripts/run-local-bin.mjs vitest vitest.mjs run tests/unit",
+    "test:integration": "node scripts/run-local-bin.mjs vitest vitest.mjs run tests/integration",
+    "test:e2e": "node scripts/run-local-bin.mjs vitest vitest.mjs run tests/e2e",
+    "typecheck": "node scripts/run-local-bin.mjs typescript bin/tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

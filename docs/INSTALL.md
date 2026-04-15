@@ -89,3 +89,10 @@ openclaw channels status --json --probe
 If OpenClaw already runs in Docker, mount this repo into the container and run
 the same plugin install and `openclaw config set ...` commands inside that
 container.
+
+If you want the repo to rebuild the Docker image and prepare a clean VK smoke
+stack for you, use:
+
+```bash
+npm run live-smoke -- --group https://vk.com/club123456789 --purge-conflicts
+```

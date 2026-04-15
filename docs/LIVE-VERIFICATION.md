@@ -45,6 +45,10 @@ Observed caveats during the same live run:
 
 - OpenClaw still emits a confusing duplicate-plugin warning for `vk`; the
   supported workaround is to use `plugins.load.paths` for this standalone repo
+- duplicate local OpenClaw Docker stacks can both consume the same VK token and
+  make live verification look broken; use
+  `npm run live-smoke -- --group https://vk.com/club123456789 --purge-conflicts`
+  when you want the wrapper to stop and remove old local OpenClaw containers
 - VK Web can attach unexpected UI decorations to user messages without breaking
   the actual bot reply path
 - attachment fallback text is still generic and does not yet distinguish image
@@ -91,10 +95,11 @@ Not re-verified in that latest pass:
 The intended pre-publish bar for this repo is:
 
 - `corepack pnpm install`
-- `corepack pnpm test`
-- `corepack pnpm typecheck`
+- `npm run release:check`
+- `npm run live-smoke -- --group https://vk.com/club123456789 --purge-conflicts`
 
-both locally and in a clean Docker container.
+That gives you both the local release gate and a rebuilt Docker runtime for VK
+smoke.
 
 ## Platform caveats
 

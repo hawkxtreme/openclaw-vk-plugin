@@ -7,6 +7,10 @@ The standalone long-poll-first repo is already in a strong state:
 - published on `main`
 - install flow works from a prepared local bundle through `plugins.load.paths`
 - standalone Docker runtime was verified live in VK
+- standalone Docker or VK smoke now has a repo-owned wrapper that rebuilds the
+  image and can purge conflicting local OpenClaw containers
+- release and publish now have dedicated repo scripts instead of an ad hoc
+  manual checklist
 - button-first menu flow works
 - plain text chat still works after menu interactions
 - mention-gated group chat commands now work live on Long Poll
@@ -47,20 +51,21 @@ Done when:
 - review findings are either fixed or explicitly documented
 - no new risky install or token-handling issues are open
 
-## Priority 3: Docker polish for ordinary users
+## Priority 3: Media UX polish for ordinary users
 
-Goal: reduce surprise for users who just want the plugin to work quickly.
+Goal: make attachment handling feel more specific and less generic in real VK
+chats.
 
 Work:
 
-- document the `plugins.load.paths` install path clearly
-- explain the misleading duplicate-plugin warning briefly
-- decide whether a dedicated image path is worth adding later
+- improve the user-facing fallback reply for image versus audio or voice
+- confirm outbound media again after the latest Long Poll UX work
+- keep the live-smoke wrapper aligned with the real VK verification steps
 
 Done when:
 
-- a user can follow the load-path setup without guesswork
-- Docker instructions are copy-paste-friendly and short
+- image versus audio replies are clearer to end users
+- live verification still confirms the same attachment behavior after changes
 
 ## Priority 4: Release polish
 
@@ -68,16 +73,15 @@ Goal: make the repo ready for broader sharing without more hidden work.
 
 Work:
 
-- final doc cleanup
-- verify `corepack pnpm test`
-- verify `corepack pnpm typecheck`
-- verify prepared install flow again from a clean checkout
+- decide whether to publish the first public npm package now or hold for one
+  more live media pass
+- keep the version and release notes aligned with the actual published bar
+- optionally add a small publish checklist to the GitHub release description
 
 Done when:
 
-- docs are internally consistent
-- verification commands are green
-- the repo can be handed to another user without extra tribal knowledge
+- the package is published on npm or intentionally held with a clear reason
+- release notes and the repo scripts point to the same verification bar
 
 ## Explicit non-goals for the next iteration
 
@@ -92,5 +96,5 @@ These should stay out of the main delivery path unless priorities change:
 
 1. Media live verification
 2. Security and code review pass
-3. Docker/docs polish
-4. Final verification and release polish
+3. Media UX polish
+4. Final publish decision

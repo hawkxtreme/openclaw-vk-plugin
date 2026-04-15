@@ -201,6 +201,13 @@ openclaw gateway restart
 openclaw channels status --json --probe
 ```
 
+For a repeatable standalone Docker or VK smoke with an automatic image rebuild,
+use the repo wrapper:
+
+```bash
+npm run live-smoke -- --group https://vk.com/club123456789 --purge-conflicts
+```
+
 ## What the probe should catch
 
 The Long Poll probe is expected to catch these common mistakes:
@@ -240,6 +247,7 @@ Archived for later:
 - [Configuration](./docs/CONFIGURATION.md)
 - [Advantages](./docs/ADVANTAGES.md)
 - [Verification](./docs/LIVE-VERIFICATION.md)
+- [Releasing](./docs/RELEASING.md)
 
 ## Development
 
@@ -247,6 +255,7 @@ Archived for later:
 corepack pnpm install
 corepack pnpm test
 corepack pnpm typecheck
+npm run release:check
 ```
 
 The package expects a compatible `openclaw` version as a peer dependency.
