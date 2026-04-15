@@ -1,41 +1,39 @@
-English | [Русский](README.ru.md)
+Русский | [English](README.en.md)
 
 # OpenClaw VK Plugin
 
-Standalone VK channel plugin for OpenClaw with a long-poll-first setup,
-button-first menus, group chats, and media support.
+Отдельный VK-плагин для OpenClaw с long-poll-first запуском, кнопочными меню,
+групповыми чатами и поддержкой медиа.
 
-## What this repo is
+## Что это за репозиторий
 
-This repository packages the VK channel as a separate plugin repo with a
-`long-poll-first` delivery path:
+Этот репозиторий выносит VK-канал в отдельный standalone-плагин со сценарием
+`long-poll-first`:
 
-- no public tunnel in the normal setup
-- no webhook secret in the normal setup
-- direct messages and group chats
-- buttons, media, and pairing or allowlist policies
+- без публичного туннеля в обычной установке
+- без webhook secret в обычной установке
+- с поддержкой личных сообщений и групповых чатов
+- с кнопками, медиа и политиками pairing или allowlist
 
-The active product path is Long Poll only. Callback transport work is archived
-on a separate branch and is not part of the recommended setup.
+Активный продуктовый путь сейчас только один: VK Long Poll. Callback API
+считается архивной веткой и не входит в рекомендуемый сценарий запуска.
 
-## Why use it
+## Зачем это использовать
 
-- Easier first run:
-  no tunnel, webhook secret, or callback confirmation code
-- Better VK coverage:
-  direct messages, group chats, buttons, media, and mention-gated groups
-- Better OpenClaw fit:
-  plugin metadata, setup, status, probe, and security contract follow the
-  OpenClaw plugin SDK shape
-- Better usability:
-  command, model, and tool menus are button-first instead of relying on users
-  to remember commands on mobile
+- Проще первый запуск:
+  не нужны tunnel, webhook secret и callback confirmation code
+- Лучше покрытие VK:
+  личка, групповые чаты, кнопки, медиа и группы с обязательным mention
+- Лучше совместимость с OpenClaw:
+  metadata, setup, status, probe и security contract следуют OpenClaw plugin SDK
+- Лучше UX:
+  меню команд, моделей и tools построены вокруг кнопок, а не памяти о slash-командах
 
-## Fastest setup
+## Самый быстрый запуск
 
-This is the shortest supported path today. It uses a prepared local bundle as a
-`plugins.load.paths` config plugin so it wins over the bundled OpenClaw `vk`
-plugin without any OpenClaw core changes.
+Это самый короткий поддерживаемый путь сейчас. Он использует подготовленный
+локальный bundle как `plugins.load.paths` config plugin, чтобы standalone-копия
+имела приоритет над bundled `vk` plugin без изменений OpenClaw core.
 
 ### Bash
 
@@ -77,45 +75,44 @@ openclaw gateway restart
 openclaw channels status --json --probe
 ```
 
-Then send a DM to the VK community. If `dmPolicy` is `pairing`, approve the
-first code:
+Потом напишите боту в VK. Если `dmPolicy` выставлен в `pairing`, подтвердите
+первый код:
 
 ```bash
 openclaw pairing approve vk <CODE>
 ```
 
-## Manual setup details
+## Подробности ручной настройки
 
-### 1. Prepare the VK community
+### 1. Подготовьте сообщество VK
 
-In VK community settings:
+В настройках сообщества VK:
 
-1. Enable community messages.
-2. Create a community access token.
-3. Grant at least these scopes:
+1. Включите сообщения сообщества.
+2. Создайте access token сообщества.
+3. Дайте минимум такие scope:
    - `messages`
    - `manage`
-4. Grant these too if you want outbound media:
+4. Для исходящей отправки медиа добавьте:
    - `photos`
    - `docs`
-5. Enable **Bots Long Poll API**.
-6. Enable these Long Poll event types:
+5. Включите **Bots Long Poll API**.
+6. Включите Long Poll events:
    - `message_new`
    - `message_allow`
    - `message_deny`
    - `message_event`
-7. If you want group chats, allow the community to be added to chats.
+7. Если нужны групповые чаты, разрешите добавлять сообщество в беседы.
 
-VK references:
+Ссылки по VK API:
 
 - `https://dev.vk.com/ru/api/bots-long-poll/getting-started`
 - `https://dev.vk.com/ru/method/groups.setLongPollSettings`
 - `https://dev.vk.com/ru/method/messages.send`
 
-### 2. Prepare the standalone load path
+### 2. Подготовьте standalone load path
 
-From this local checkout, prepare the trimmed install directory and point
-`plugins.load.paths` at it:
+Из локального checkout:
 
 ```bash
 node scripts/prepare-install-dir.mjs
@@ -123,20 +120,20 @@ openclaw config set plugins.load.paths.0 "$(pwd)/.artifacts/install/vk"
 openclaw plugins enable vk
 ```
 
-If you want a development link instead of the trimmed bundle:
+Если нужен dev-link вместо trimmed bundle:
 
 ```bash
 openclaw config set plugins.load.paths.0 "$(pwd)"
 openclaw plugins enable vk
 ```
 
-This repo keeps package metadata separate from the host-bundled `vk` plugin,
-but the recommended runtime path stays `plugins.load.paths` until OpenClaw
-ships a host-side duplicate-plugin precedence fix.
+Репозиторий держит package metadata отдельно от bundled `vk` plugin, но
+рекомендуемый runtime path пока остается через `plugins.load.paths`, пока
+OpenClaw не закроет host-side precedence issue для duplicate plugin id.
 
-### 3. Configure OpenClaw
+### 3. Настройте OpenClaw
 
-Fastest non-interactive path:
+Самый быстрый non-interactive путь:
 
 ```bash
 openclaw config set channels.vk.enabled true
@@ -146,7 +143,7 @@ openclaw config set channels.vk.transport long-poll
 openclaw config set channels.vk.dmPolicy pairing
 ```
 
-Equivalent JSON:
+Эквивалент через `~/.openclaw/openclaw.json`:
 
 ```json
 {
@@ -162,31 +159,31 @@ Equivalent JSON:
 }
 ```
 
-### 4. Start and verify
+### 4. Запустите и проверьте
 
-Restart the gateway:
+Перезапустите gateway:
 
 ```bash
 openclaw gateway restart
 ```
 
-Run a probe:
+Запустите probe:
 
 ```bash
 openclaw channels status --json --probe
 ```
 
-Then message the VK bot. If `dmPolicy` is `pairing`, approve the first pairing
-request:
+Потом напишите боту в VK. Если `dmPolicy` выставлен в `pairing`, подтвердите
+первый pairing-код:
 
 ```bash
 openclaw pairing approve vk <CODE>
 ```
 
-## Docker note
+## Docker и live-smoke
 
-If OpenClaw already runs in Docker, mount this repo into the container, prepare
-the trimmed install directory, and run the same commands inside the container:
+Если OpenClaw уже работает в Docker, примонтируйте этот репозиторий в
+контейнер и выполните те же команды внутри контейнера:
 
 ```bash
 node /work/openclaw-vk-plugin/scripts/prepare-install-dir.mjs
@@ -201,55 +198,64 @@ openclaw gateway restart
 openclaw channels status --json --probe
 ```
 
-For a repeatable standalone Docker or VK smoke with an automatic image rebuild,
-use the repo wrapper:
+Для повторяемого standalone Docker или VK smoke с автоматическим rebuild image
+используйте wrapper из репозитория:
 
 ```bash
 npm run live-smoke -- --group https://vk.com/club123456789 --purge-conflicts
 ```
 
-## What the probe should catch
+Что делает этот wrapper:
 
-The Long Poll probe is expected to catch these common mistakes:
+- готовит `.artifacts/install/vk`
+- по умолчанию rebuild-ит host OpenClaw Docker image
+- поднимает isolated smoke stack
+- умеет остановить и удалить старые локальные OpenClaw контейнеры, чтобы не
+  было duplicate consumers на одном VK token
+- выполняет `channels status --json --probe` внутри свежего Docker runtime
 
-- invalid or revoked token
-- wrong `groupId`
-- Bots Long Poll API disabled in VK
-- required Long Poll events not enabled
+## Что должен ловить probe
 
-If outbound delivery fails later, the most common VK causes are:
+Long Poll probe должен находить типовые ошибки:
 
-- missing user permission to receive messages
-- invalid keyboard payload
-- disabled chat-bot settings for chats
-- inaccessible or closed chat
-- missing `photos` or `docs` scopes for media
+- неверный или отозванный token
+- неправильный `groupId`
+- отключенный Bots Long Poll API в VK
+- не включенные обязательные Long Poll events
 
-## Product scope
+Если потом ломается outbound delivery, самые частые причины такие:
 
-Current scope:
+- пользователь не разрешил сообщения от сообщества
+- невалидный keyboard payload
+- отключены настройки чат-бота для бесед
+- чат недоступен или закрыт
+- нет `photos` или `docs` scope для медиа
 
-- Long Poll as the default user path
-- direct messages
-- group chats
-- model and tool command menus
-- outbound text and media
-- pairing and allowlist controls
+## Границы продукта
 
-Archived for later:
+Текущий scope:
 
-- Callback API transport
-- webhook-specific deployment workflows
+- Long Poll как основной пользовательский путь
+- личные сообщения
+- групповые чаты
+- меню команд, моделей и tools
+- исходящий текст и медиа
+- pairing и allowlist
 
-## Docs
+Отложено на потом:
 
-- [Installation](./docs/INSTALL.md)
-- [Configuration](./docs/CONFIGURATION.md)
-- [Advantages](./docs/ADVANTAGES.md)
-- [Verification](./docs/LIVE-VERIFICATION.md)
-- [Releasing](./docs/RELEASING.md)
+- transport через Callback API
+- deployment-сценарии, завязанные на webhook
 
-## Development
+## Документация
+
+- [Установка](./docs/INSTALL.md)
+- [Конфигурация](./docs/CONFIGURATION.md)
+- [Преимущества](./docs/ADVANTAGES.md)
+- [Проверка](./docs/LIVE-VERIFICATION.md)
+- [Релизы и публикация](./docs/RELEASING.md)
+
+## Разработка
 
 ```bash
 corepack pnpm install
@@ -258,7 +264,7 @@ corepack pnpm typecheck
 npm run release:check
 ```
 
-The package expects a compatible `openclaw` version as a peer dependency.
+Пакет ожидает совместимую версию `openclaw` как peer dependency.
 
 ## License
 

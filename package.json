@@ -22,6 +22,7 @@
     "index.ts",
     "openclaw.plugin.json",
     "README.md",
+    "README.en.md",
     "README.ru.md",
     "runtime-api.ts",
     "setup-entry.ts",
