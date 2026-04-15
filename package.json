@@ -1,8 +1,8 @@
 {
   "name": "openclaw-vk-plugin",
-  "version": "2026.4.8",
+  "version": "2026.4.9",
   "private": false,
-  "description": "Standalone VK channel plugin for OpenClaw with long-poll-first onboarding, group chats, buttons, and media",
+  "description": "VK channel plugin for OpenClaw with npm-first install, Long Poll UX, group chats, buttons, and media",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -73,7 +73,7 @@
       "detailLabel": "VK Bot",
       "docsPath": "https://docs.openclaw.ai/channels/vk",
       "docsLabel": "vk",
-      "blurb": "VK community bot for direct messages and group chats with buttons, media, and long-poll-first onboarding.",
+      "blurb": "VK community bot for npm-first install, direct messages, group chats, buttons, media, and Long Poll UX.",
       "systemImage": "message",
       "order": 76,
       "quickstartAllowFrom": true,
