@@ -27,6 +27,11 @@ This path is already verified against the real CLI:
 - the plugin lands as a global extension and overrides bundled `vk`
 - no extra `plugins.load.paths` setup is needed for normal npm installs
 
+If this is a fresh Docker container or the very first OpenClaw run, use the
+short first-run block below. In minimal Node images you usually need to set
+`gateway.mode=local` once, and `gateway restart` is often replaced by a simple
+foreground `openclaw gateway`.
+
 ## What this repo is
 
 This repository packages the VK channel as a separate plugin repo with a
@@ -51,6 +56,42 @@ and is not part of the recommended setup.
 - Better usability:
   command, model, and tool menus are button-first instead of relying on slash
   command memory
+
+## Fresh Docker / first run
+
+This exact path was verified in a clean `node:24-bookworm` container.
+
+If `openclaw` is not on `PATH` right after `npm i -g openclaw@latest`, replace
+it with `npx openclaw` in the commands below.
+
+```bash
+npm i -g openclaw@latest
+npx openclaw config set gateway.mode local
+
+npx openclaw plugins install openclaw-vk-plugin
+npx openclaw plugins enable vk
+npx openclaw config set channels.vk.enabled true
+npx openclaw config set channels.vk.groupId 237442417
+npx openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+npx openclaw config set channels.vk.transport long-poll
+npx openclaw config set channels.vk.dmPolicy pairing
+```
+
+Then start the gateway in the foreground:
+
+```bash
+npx openclaw gateway
+```
+
+And verify from a second terminal:
+
+```bash
+npx openclaw channels status --json --probe
+```
+
+In minimal Docker images, avoid `--force` on the first run unless you really
+need it. Those images often do not include `fuser` or `lsof`, which only adds
+friction.
 
 ## Fastest setup
 
@@ -85,6 +126,15 @@ openclaw config set channels.vk.dmPolicy pairing
 openclaw gateway restart
 openclaw channels status --json --probe
 ```
+
+If `gateway restart` answers `Gateway service disabled`, that is not a plugin
+install failure. In a fresh Docker or service-less environment, just run:
+
+```bash
+openclaw gateway
+```
+
+Then run `openclaw channels status --json --probe` from a second terminal.
 
 Then send a DM to the VK community. If `dmPolicy` is `pairing`, approve the
 first pairing code:
@@ -147,6 +197,7 @@ The plugin is installed into global OpenClaw extensions and recorded under
 Fastest non-interactive path:
 
 ```bash
+openclaw config set gateway.mode local
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 123456789
 openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
@@ -173,6 +224,9 @@ Equivalent JSON:
       "transport": "long-poll",
       "dmPolicy": "pairing"
     }
+  },
+  "gateway": {
+    "mode": "local"
   }
 }
 ```
@@ -183,6 +237,9 @@ Equivalent JSON:
 openclaw gateway restart
 openclaw channels status --json --probe
 ```
+
+If this is a fresh Docker or a service-less environment, use `openclaw gateway`
+instead of `gateway restart`.
 
 If `dmPolicy` is `pairing`, approve the first pairing code:
 

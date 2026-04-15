@@ -15,6 +15,16 @@ openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
 ```
 
+If this is a fresh Docker container or the first OpenClaw run, set local mode
+first:
+
+```bash
+openclaw config set gateway.mode local
+```
+
+If `openclaw` is not on `PATH` right after `npm i -g openclaw@latest`, use
+`npx openclaw` instead in the commands below.
+
 Then configure VK:
 
 ```bash
@@ -26,6 +36,11 @@ openclaw config set channels.vk.dmPolicy pairing
 openclaw gateway restart
 openclaw channels status --json --probe
 ```
+
+If `gateway restart` says `Gateway service disabled`, that is expected in fresh
+Docker or service-less environments. Run `openclaw gateway` in the foreground
+instead, and execute `openclaw channels status --json --probe` from a second
+terminal.
 
 This npm install path is already verified on the real CLI. The standalone
 plugin is installed as a global plugin and overrides bundled `vk`.
@@ -61,8 +76,9 @@ Before the first probe:
 1. Install the npm package
 2. Enable plugin `vk`
 3. Add VK config under `channels.vk`
-4. Restart the gateway if it is already running
-5. Probe the channel
+4. Set `gateway.mode=local` if this is a brand-new OpenClaw config
+5. Restart the gateway if it is already running
+6. Probe the channel
 
 ```bash
 openclaw channels status --json --probe

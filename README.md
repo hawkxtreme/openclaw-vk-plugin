@@ -27,6 +27,11 @@ openclaw channels status --json --probe
 - plugin ставится как глобальный extension и override-ит bundled `vk`
 - отдельный `plugins.load.paths` для обычной npm-установки больше не нужен
 
+Если это свежий Docker или самый первый запуск OpenClaw, ниже есть отдельный
+короткий блок. В минимальных Node image реальный рабочий путь чуть отличается:
+нужно один раз задать `gateway.mode=local`, а вместо `gateway restart` часто
+нужно просто запустить `openclaw gateway`.
+
 ## Что это за репозиторий
 
 Этот репозиторий выносит VK-канал в отдельный standalone-плагин со сценарием
@@ -50,6 +55,41 @@ openclaw channels status --json --probe
   личка, групповые чаты, кнопки, медиа и группы с обязательным mention
 - Лучше UX:
   меню команд, моделей и tools построены вокруг кнопок, а не памяти о slash-командах
+
+## Свежий Docker / первый запуск
+
+Этот путь проверен на чистом `node:24-bookworm` контейнере.
+
+Если после `npm i -g openclaw@latest` команда `openclaw` не появилась в `PATH`,
+просто замените её на `npx openclaw` во всех командах ниже.
+
+```bash
+npm i -g openclaw@latest
+npx openclaw config set gateway.mode local
+
+npx openclaw plugins install openclaw-vk-plugin
+npx openclaw plugins enable vk
+npx openclaw config set channels.vk.enabled true
+npx openclaw config set channels.vk.groupId 237442417
+npx openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
+npx openclaw config set channels.vk.transport long-poll
+npx openclaw config set channels.vk.dmPolicy pairing
+```
+
+Потом запустите gateway в foreground:
+
+```bash
+npx openclaw gateway
+```
+
+И в другом терминале проверьте канал:
+
+```bash
+npx openclaw channels status --json --probe
+```
+
+Для минимального Docker не добавляйте `--force` без необходимости: в таких
+image часто нет `fuser` или `lsof`, и это только усложняет первый запуск.
 
 ## Быстрый запуск
 
@@ -84,6 +124,16 @@ openclaw config set channels.vk.dmPolicy pairing
 openclaw gateway restart
 openclaw channels status --json --probe
 ```
+
+Если `gateway restart` отвечает `Gateway service disabled`, это не ошибка
+плагина. В свежем Docker или в среде без установленного service manager просто
+запустите:
+
+```bash
+openclaw gateway
+```
+
+А `openclaw channels status --json --probe` выполните из второго терминала.
 
 Потом напишите боту в VK. Если `dmPolicy` выставлен в `pairing`, подтвердите
 первый pairing-код:
@@ -146,6 +196,7 @@ openclaw plugins enable vk
 Самый быстрый non-interactive путь:
 
 ```bash
+openclaw config set gateway.mode local
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 123456789
 openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
@@ -172,6 +223,9 @@ openclaw config set channels.vk.dmPolicy pairing
       "transport": "long-poll",
       "dmPolicy": "pairing"
     }
+  },
+  "gateway": {
+    "mode": "local"
   }
 }
 ```
@@ -181,6 +235,13 @@ openclaw config set channels.vk.dmPolicy pairing
 ```bash
 openclaw gateway restart
 openclaw channels status --json --probe
+```
+
+Если это свежий Docker или service-less окружение, вместо `gateway restart`
+используйте обычный foreground-запуск:
+
+```bash
+openclaw gateway
 ```
 
 Если `dmPolicy` выставлен в `pairing`, подтвердите первый pairing-код:
