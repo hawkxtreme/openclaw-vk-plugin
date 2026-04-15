@@ -12,6 +12,7 @@
 ```bash
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 237442417
 openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
@@ -69,6 +70,7 @@ npx openclaw config set gateway.mode local
 
 npx openclaw plugins install openclaw-vk-plugin
 npx openclaw plugins enable vk
+npx openclaw config set plugins.allow.0 vk
 npx openclaw config set channels.vk.enabled true
 npx openclaw config set channels.vk.groupId 237442417
 npx openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
@@ -98,6 +100,7 @@ image часто нет `fuser` или `lsof`, и это только услож
 ```bash
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 237442417
@@ -114,6 +117,7 @@ openclaw channels status --json --probe
 ```powershell
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 237442417
@@ -153,6 +157,15 @@ plugin id для `vk`. Для npm-установки это ожидаемо:
 
 Это не ошибка установки, а нормальное поведение текущего host precedence path.
 
+Отдельно рекомендуется один раз выполнить:
+
+```bash
+openclaw config set plugins.allow.0 vk
+```
+
+Это явно помечает установленный global plugin как trusted и убирает warning про
+`plugins.allow is empty` для non-bundled plugin.
+
 ## Подробности ручной настройки
 
 ### 1. Подготовьте сообщество VK
@@ -186,6 +199,7 @@ plugin id для `vk`. Для npm-установки это ожидаемо:
 ```bash
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 ```
 
 Плагин ставится в глобальные OpenClaw extensions и записывается в

@@ -12,6 +12,7 @@ The simplest install path is now npm-first, not a git checkout:
 ```bash
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 237442417
 openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
@@ -70,6 +71,7 @@ npx openclaw config set gateway.mode local
 
 npx openclaw plugins install openclaw-vk-plugin
 npx openclaw plugins enable vk
+npx openclaw config set plugins.allow.0 vk
 npx openclaw config set channels.vk.enabled true
 npx openclaw config set channels.vk.groupId 237442417
 npx openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
@@ -100,6 +102,7 @@ friction.
 ```bash
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 237442417
@@ -116,6 +119,7 @@ openclaw channels status --json --probe
 ```powershell
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 
 openclaw config set channels.vk.enabled true
 openclaw config set channels.vk.groupId 237442417
@@ -154,6 +158,15 @@ That is expected for the npm install path:
 
 That warning does not mean the install failed.
 
+It is also recommended to run this once:
+
+```bash
+openclaw config set plugins.allow.0 vk
+```
+
+That explicitly trusts the installed global plugin and removes the host warning
+about `plugins.allow is empty` for non-bundled plugins.
+
 ## Manual setup details
 
 ### 1. Prepare the VK community
@@ -187,6 +200,7 @@ VK references:
 ```bash
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 ```
 
 The plugin is installed into global OpenClaw extensions and recorded under

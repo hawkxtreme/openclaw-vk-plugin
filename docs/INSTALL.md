@@ -13,6 +13,7 @@ The shortest normal-user path is now:
 ```bash
 openclaw plugins install openclaw-vk-plugin
 openclaw plugins enable vk
+openclaw config set plugins.allow.0 vk
 ```
 
 If this is a fresh Docker container or the first OpenClaw run, set local mode
@@ -55,6 +56,15 @@ install path:
 - the global plugin gets precedence and overrides the bundled one
 
 This warning does not mean the standalone plugin failed to install.
+
+It is also recommended to trust the installed global plugin explicitly:
+
+```bash
+openclaw config set plugins.allow.0 vk
+```
+
+That removes the host warning about `plugins.allow is empty` for non-bundled
+plugins.
 
 ## VK-side setup
 
