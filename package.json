@@ -1,6 +1,6 @@
 {
   "name": "openclaw-vk-plugin",
-  "version": "2026.4.10",
+  "version": "2026.4.11",
   "private": false,
   "description": "VK channel plugin for OpenClaw with npm-first install, Long Poll UX, group chats, buttons, and media",
   "type": "module",

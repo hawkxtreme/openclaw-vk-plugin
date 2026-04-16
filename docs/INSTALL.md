@@ -8,7 +8,9 @@
 
 ## Recommended path: install from npm
 
-The shortest normal-user path is now:
+1. Prepare the VK side first:
+   - [VK community setup](./VK-COMMUNITY-SETUP.en.md)
+2. Install and trust the plugin:
 
 ```bash
 openclaw plugins install openclaw-vk-plugin
@@ -16,83 +18,69 @@ openclaw plugins enable vk
 openclaw config set plugins.allow.0 vk
 ```
 
-If this is a fresh Docker container or the first OpenClaw run, set local mode
-first:
-
-```bash
-openclaw config set gateway.mode local
-```
-
-If `openclaw` is not on `PATH` right after `npm i -g openclaw@latest`, use
-`npx openclaw` instead in the commands below.
-
-Then configure VK:
+3. Configure the channel:
 
 ```bash
 openclaw config set channels.vk.enabled true
-openclaw config set channels.vk.groupId 237442417
+openclaw config set channels.vk.groupId 123456789
 openclaw config set channels.vk.accessToken 'vk1.a.REPLACE_ME'
 openclaw config set channels.vk.transport long-poll
 openclaw config set channels.vk.dmPolicy pairing
+```
+
+4. Start and probe:
+
+```bash
 openclaw gateway restart
 openclaw channels status --json --probe
 ```
 
-If `gateway restart` says `Gateway service disabled`, that is expected in fresh
-Docker or service-less environments. Run `openclaw gateway` in the foreground
-instead, and execute `openclaw channels status --json --probe` from a second
-terminal.
+If `probe.ok=true`, the channel is up.
 
-This npm install path is already verified on the real CLI. The standalone
-plugin is installed as a global plugin and overrides bundled `vk`.
+## First run in fresh Docker
+
+Use `npx openclaw` instead of `openclaw` if the binary is not on `PATH` right
+after `npm i -g openclaw@latest`.
+
+On a brand-new OpenClaw config, set local mode first:
+
+```bash
+npx openclaw config set gateway.mode local
+```
+
+If `gateway restart` says `Gateway service disabled`, start the gateway in the
+foreground instead:
+
+```bash
+npx openclaw gateway
+```
+
+Then run the probe from a second terminal:
+
+```bash
+npx openclaw channels status --json --probe
+```
+
+## Group chats
+
+To enable the simplest group-chat path:
+
+```bash
+openclaw config set channels.vk.groupPolicy open
+openclaw config set channels.vk.groups.*.requireMention true
+```
+
+Set `requireMention=false` if you do not want mention-gated group replies.
 
 ## Expected duplicate plugin warning
 
-You may see a warning about duplicate plugin id `vk`. That is expected for this
-install path:
+You may see a warning about duplicate plugin id `vk`. That is expected:
 
 - bundled `vk` still exists in the host OpenClaw install
-- `openclaw-vk-plugin` is installed as a global extension
+- `openclaw-vk-plugin` is installed as a global plugin
 - the global plugin gets precedence and overrides the bundled one
 
-This warning does not mean the standalone plugin failed to install.
-
-It is also recommended to trust the installed global plugin explicitly:
-
-```bash
-openclaw config set plugins.allow.0 vk
-```
-
-That removes the host warning about `plugins.allow is empty` for non-bundled
-plugins.
-
-## VK-side setup
-
-Before the first probe:
-
-1. Enable community messages.
-2. Create a community access token.
-3. Grant `messages` and `manage`.
-4. Grant `photos` and `docs` if you want outbound media.
-5. Enable **Bots Long Poll API**.
-6. Enable:
-   - `message_new`
-   - `message_allow`
-   - `message_deny`
-   - `message_event`
-
-## After install
-
-1. Install the npm package
-2. Enable plugin `vk`
-3. Add VK config under `channels.vk`
-4. Set `gateway.mode=local` if this is a brand-new OpenClaw config
-5. Restart the gateway if it is already running
-6. Probe the channel
-
-```bash
-openclaw channels status --json --probe
-```
+This does not mean the standalone plugin failed to install.
 
 ## Local checkout path: development only
 
@@ -112,21 +100,3 @@ This path is useful for:
 - local code edits
 - validating unpublished changes
 - repo-owned Docker or VK live-smoke runs
-
-## Why Long Poll first
-
-- no public HTTPS callback URL
-- no tunnel lifecycle problems
-- no callback secret or confirmation code
-- easier local and Docker verification
-
-## Docker and live-smoke
-
-If you want the repo to rebuild the Docker image and prepare a clean VK smoke
-stack for you, use:
-
-```bash
-git clone https://github.com/hawkxtreme/openclaw-vk-plugin.git
-cd openclaw-vk-plugin
-npm run live-smoke -- --group https://vk.com/club123456789 --purge-conflicts
-```
